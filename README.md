@@ -52,14 +52,13 @@ It includes a built-in **Retrieval-Augmented Generation (RAG)** system that inde
 - Context window management
 
 
-![Main Window](media/tangi.png)
-*Main widget LLM Inference Demo*
+![Main Window](media/Tangi.png)
 
-![Main Window](media/tangi2.png)
-*Retrieval Augmented Generation Code Indexing*
+*Main widget LLM Inference Demo*
 
 
 ![Main Window](media/tangi3.png)
+
 *Tangi About Section With Love*
 
 ---
