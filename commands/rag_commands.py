@@ -158,16 +158,19 @@ class SearchCommand(Command):
             
             self.parent.append_command_output(output)
             
-            # Now answer using the loaded context
+            # Found results message
             self.parent.append_message("system", f"Found {len(results)} relevant sections. Generating answer...")
             
-            # Trigger the LLM to answer using the loaded context
+            # Set the last command so prepare_and_send_to_llm knows this is a search query
+            self.parent._last_command = 'search'
+            
+            # Let prepare_and_send_to_llm handle the routing (online API or local LLM)
+            # This method already has the logic to redirect to online API when in online mode
             self.parent.prepare_and_send_to_llm(query)
             
         except Exception as e:
             logger.error(f"Search failed: {e}", exc_info=True)
             self.parent.append_message("system", f"Search failed: {e}")
-
 
 class DownloadRAGCommand(Command):
     """Download the RAG embedding model"""

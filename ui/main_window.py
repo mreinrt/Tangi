@@ -85,6 +85,10 @@ class RawChat(QWidget):
         # Load last model from settings
         self.last_model_path = self.settings.value("last_model", "")
 
+        # Load saved window opacity from previous session (between 0.0 and 1.0)
+        saved_opacity = self.settings.value("window_opacity", 1.0, type=float)
+        self.setWindowOpacity(saved_opacity)
+
         # Use default storage in user's home directory
         self.default_storage_dir = os.path.expanduser("~/.Tangi")
         self.db_path = os.path.join(self.default_storage_dir, "chatlogs.db")
@@ -93,7 +97,7 @@ class RawChat(QWidget):
         # Track the last command executed (for RAG context handling)
         self._last_command = None
         
-# Theme refresh prevention flag
+        # Theme refresh prevention flag
         self._refreshing_theme = False
 
         # Thinking animation attributes
@@ -107,6 +111,38 @@ class RawChat(QWidget):
         self.status_bar = QStatusBar()
         self.status_label = QLabel("Ready")
         self.status_bar.addWidget(self.status_label, 1)
+        
+        # === ADD ONLINE MODE TOGGLE ===
+        self.online_mode = False  # State variable
+        self.api_client = None  # Universal API client (supports multiple providers)
+
+        # Create toggle button
+        self.online_toggle = QPushButton("✖ Offline")
+        self.online_toggle.setCheckable(True)
+        self.online_toggle.setChecked(False)
+        self.online_toggle.setFixedWidth(100)
+        self.online_toggle.setStyleSheet("""
+            QPushButton {
+                background-color: #444444;
+                color: #ffffff;
+                border: 1px solid #888888;
+                border-radius: 3px;
+                padding: 2px 8px;
+            }
+            QPushButton:checked {
+                background-color: #0066cc;
+                color: #ffffff;
+                border: 1px solid #00ff00;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+        """)
+        self.online_toggle.clicked.connect(self.toggle_online_mode)
+        self.status_bar.addPermanentWidget(self.online_toggle)
+
+        # Initialize API client (supports NVIDIA NIM, OpenAI, Together AI, DeepSeek)
+        self.init_api_client()
 
         # ==================== MAIN SPLITTER ====================
         main_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -143,6 +179,7 @@ class RawChat(QWidget):
         file_menu = menubar.addMenu("File")
         file_menu.addAction("New Session", self.new_session)
         file_menu.addAction("Load Model", self.load_model)
+        file_menu.addAction("Unload Model", self.unload_model)
         file_menu.addSeparator()
         file_menu.addAction("Load Session", self.load_session)
         file_menu.addAction("Manage Sessions", self.manage_sessions)
@@ -192,6 +229,175 @@ class RawChat(QWidget):
 
         # RAG model setting
         self.rag_model = None
+
+    # ==================== API CLIENT METHODS (Multi-Provider) ====================
+    
+    def init_api_client(self):
+        """Initialize the universal API client (supports NVIDIA NIM, OpenAI, Together AI, DeepSeek)"""
+        try:
+            from Tangi.utils.online_api import OnlineAPIClient
+            self.api_client = OnlineAPIClient()
+            
+            # Log which provider is configured
+            base_url = self.api_client.get_base_url()
+            if "integrate.api.nvidia.com" in base_url:
+                logger.info(f"API client initialized with NVIDIA NIM provider")
+            elif "api.openai.com" in base_url:
+                logger.info(f"API client initialized with OpenAI provider")
+            elif "api.together.xyz" in base_url:
+                logger.info(f"API client initialized with Together AI provider")
+            elif "api.deepseek.com" in base_url:
+                logger.info(f"API client initialized with DeepSeek provider")
+            else:
+                logger.info(f"API client initialized with custom provider: {base_url}")
+                
+        except ImportError as e:
+            logger.error(f"Failed to import API client: {e}")
+            self.api_client = None
+    
+    def toggle_online_mode(self, checked):
+        """Toggle between online and offline mode"""
+        self.online_mode = checked
+        
+        if checked:
+            # Check if API key is configured
+            if self.api_client and self.api_client.get_api_key():
+                # Check if user has chosen to always auto-unload
+                always_unload = self.settings.value("always_unload_on_online", False, type=bool)
+                
+                if self.llm and not always_unload:
+                    # Create a custom dialog with "Don't ask again" checkbox
+                    msg_box = QMessageBox(self)
+                    msg_box.setWindowTitle("Unload Local Model?")
+                    msg_box.setText(f"A local model is currently loaded ({os.path.basename(self.model_path) if self.model_path else 'Unknown'}).\n\nSwitching to online mode. Unloading the local model will free up RAM.\n\nDo you want to unload it?")
+                    msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                    
+                    # Add "Don't ask again" checkbox
+                    dont_ask = QCheckBox("Always unload automatically when switching to online mode")
+                    msg_box.setCheckBox(dont_ask)
+                    
+                    reply = msg_box.exec()
+                    
+                    # Save preference if checkbox is checked
+                    if dont_ask.isChecked():
+                        self.settings.setValue("always_unload_on_online", True)
+                    
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self.append_message("system", "Unloading local model to free RAM...")
+                        self.unload_model()
+                        QApplication.processEvents()
+                    else:
+                        self.append_message("system", "Local model remains loaded (RAM still in use).")
+                elif self.llm and always_unload:
+                    # Auto-unload without asking
+                    self.append_message("system", "Auto-unloading local model to free RAM...")
+                    self.unload_model()
+                    QApplication.processEvents()
+                
+                # Get provider info for status message
+                provider_info = self.api_client.get_provider_info()
+                provider_name = provider_info.get("name", "API")
+                
+                self.online_toggle.setText("✔ Online")
+                self.append_message("system", f"Online mode activated. Using {provider_name} for responses.")
+                logger.info(f"Online mode activated with {provider_name}")
+            else:
+                # No API key - revert to offline (same as before)
+                self.online_mode = False
+                self.online_toggle.setChecked(False)
+                self.online_toggle.setText("✖ Offline")
+                QMessageBox.warning(
+                    self, 
+                    "API Key Required", 
+                    "Please configure your API key in Preferences first.\n\n"
+                    "Go to Preferences → NVIDIA NIM Online Mode to add your API key.\n\n"
+                    "Free options available: NVIDIA NIM (40 req/min, no credit card)"
+                )
+        else:
+            self.online_toggle.setText("✖ Offline")
+            self.append_message("system", "Offline mode activated.")
+            logger.info("Offline mode activated")
+            
+            # Clear conversation history
+            if self.api_client:
+                self.api_client.clear_history()
+            
+            # Optional: Remind user if no model is loaded
+            if not self.llm:
+                self.append_message("system", "No local model loaded. Use File → Load Model to load one.")
+    
+    def process_online_prompt(self, prompt):
+        """Process prompt using the configured API provider"""
+        if not self.session_id:
+            self.auto_create_session()
+        
+        # Add to history and save
+        self.history.append(f"User: {prompt}")
+        self.save("user", prompt)
+        
+        # Update UI
+        self.input.setEnabled(False)
+        
+        # Get provider name for status message
+        provider_name = "API"
+        if self.api_client:
+            provider_info = self.api_client.get_provider_info()
+            provider_name = provider_info.get("name", "API")
+        
+        self.start_thinking_animation(f"Connecting to {provider_name}")
+        
+        # Process in background
+        QTimer.singleShot(10, lambda: self._send_to_api(prompt))
+    
+    def _send_to_api(self, prompt):
+        """Send message to the configured API provider"""
+        try:
+            from Tangi.utils.helpers import get_appropriate_system_prompt, clean_response
+            
+            # Get system prompt
+            system_prompt = get_appropriate_system_prompt(self.model_path)
+            
+            # Send message
+            reply = self.api_client.send_message(prompt, system_prompt)
+            
+            # Clean response
+            cleaned_reply = clean_response(reply)
+            
+            # Stop animation and display
+            self.stop_thinking_animation()
+            self.append_message("assistant", cleaned_reply)
+            self.save("assistant", cleaned_reply)
+            self.history.append(f"Assistant: {cleaned_reply}")
+            
+            self.status_label.setText("Ready")
+            self.input.setEnabled(True)
+            self.input.setFocus()
+            
+        except Exception as e:
+            self.stop_thinking_animation()
+            error_msg = str(e)
+            logger.error(f"API error: {error_msg}")
+            
+            # Get provider name for error message
+            provider_name = "API"
+            if self.api_client:
+                provider_info = self.api_client.get_provider_info()
+                provider_name = provider_info.get("name", "API")
+            
+            if "API key" in error_msg.lower() or "key" in error_msg.lower():
+                self.append_message("system", f"{provider_name} error: {error_msg}\n\nPlease check your API key in Preferences.")
+                # Switch to offline mode
+                self.online_mode = False
+                self.online_toggle.setChecked(False)
+                self.online_toggle.setText("✖ Offline")
+            elif "quota" in error_msg.lower() or "billing" in error_msg.lower():
+                self.append_message("system", f"{provider_name} error: {error_msg}\n\nYou may need to add billing information or check your usage limits.\n\nTry NVIDIA NIM (free, 40 req/min, no credit card) in Preferences.")
+            else:
+                self.append_message("system", f"{provider_name} error: {error_msg}")
+            
+            self.input.setEnabled(True)
+            self.input.setFocus()
+            self.status_label.setText("Error occurred")
 
     # ==================== MODEL PERSISTENCE ====================  
     
@@ -301,6 +507,20 @@ class RawChat(QWidget):
             self.command_registry.execute(prompt[1:])
             return
 
+        # === ONLINE MODE ROUTING ===
+        if self.online_mode and self.api_client:
+            # Check if API key is set
+            if not self.api_client.get_api_key():
+                self.append_message("system", "API key not configured. Switching to offline mode.")
+                self.online_mode = False
+                self.online_toggle.setChecked(False)
+                self.online_toggle.setText("✖ Offline")
+                # Fall through to offline mode
+            else:
+                self.process_online_prompt(prompt)
+                return  # Early return, don't process locally
+
+        # === OFFLINE MODE (Original flow) ===
         # Check for LLM
         if not self.llm:
             self.append_message("system", "No language model detected. Load language model to begin...")
@@ -517,25 +737,19 @@ class RawChat(QWidget):
 
     def load_model(self):
         """Open file dialog and load a model"""
+        # If a model is already loaded, unload it first to free RAM
+        if self.llm:
+            self.append_message("system", "Unloading current model to free RAM...")
+            self.unload_model()
+            # Wait a moment for cleanup
+            QApplication.processEvents()
+            import time
+            time.sleep(0.5)
+        
+        # Stop any existing loader thread
         if self.model_loader and self.model_loader.isRunning():
             self.model_loader.stop()
             self.model_loader = None
-
-        if self.llm:
-            try:
-                if hasattr(self.llm, 'close'):
-                    self.llm.close()
-                elif hasattr(self.llm, 'reset'):
-                    self.llm.reset()
-            except Exception as e:
-                logger.warning(f"Error cleaning up old model: {e}")
-            finally:
-                self.llm = None
-                self.model_type = None
-                self.model_size_category = None
-                self.estimated_params = 0
-            import gc
-            gc.collect()
 
         dialog = themed_file_dialog(self, "Select GGUF", "", "GGUF (*.gguf)")
 
@@ -566,6 +780,53 @@ class RawChat(QWidget):
                 self.model_loader.progress.connect(self.on_model_load_progress)
                 self.model_loader.finished.connect(self.on_model_loader_finished)
                 self.model_loader.start()
+
+    def unload_model(self):
+        """Unload the current model to free RAM"""
+        if not self.llm:
+            self.append_message("system", "No model is currently loaded.")
+            return
+        
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Unload Model",
+            f"Are you sure you want to unload {os.path.basename(self.model_path) if self.model_path else 'the current model'}?\n\n"
+            "This will free up RAM. You can load a model again later.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Clean up the model
+                if hasattr(self.llm, 'close'):
+                    self.llm.close()
+                elif hasattr(self.llm, 'reset'):
+                    self.llm.reset()
+                
+                self.llm = None
+                self.model_type = None
+                self.model_size_category = None
+                self.estimated_params = 0
+                self.model_path = None
+                
+                # Clear the saved model path so it doesn't auto-load next time
+                self.settings.setValue("last_model", "")
+                self.last_model_path = ""
+                
+                # Force garbage collection
+                import gc
+                gc.collect()
+                
+                self.append_message("system", "Model unloaded successfully. RAM freed.")
+                logger.info("Model unloaded by user and saved path cleared")
+                
+                # Update status bar
+                self.status_label.setText("Ready (No model loaded)")
+                
+            except Exception as e:
+                logger.error(f"Error unloading model: {e}")
+                self.append_message("system", f"Error unloading model: {str(e)[:100]}")
 
     def on_model_loaded(self, llm):
         """Handle successful model load"""
@@ -655,9 +916,35 @@ class RawChat(QWidget):
         self.model_loader = None
 
     # ==================== LLM INTERACTION ====================
-
     def prepare_and_send_to_llm(self, prompt):
         """Prepare context and send to LLM worker"""
+        # Don't use local LLM if we're in online mode - redirect to API
+        if self.online_mode and self.api_client and self.api_client.get_api_key():
+            logger.info("Online mode active - using API instead of local LLM")
+            
+            # If this is a search query with code context, include it
+            if hasattr(self, '_last_command') and self._last_command in ['search', 'ds'] and self.current_code_context:
+                # Build a prompt with code snippets
+                code_context_str = "\n\n=== RELEVANT CODE ===\n"
+                for i, chunk in enumerate(self.current_code_context[:5]):
+                    if isinstance(chunk, dict):
+                        file_name = chunk.get('file', 'Unknown')
+                        start_line = chunk.get('start_line', '?')
+                        end_line = chunk.get('end_line', '?')
+                        text = chunk.get('text', '')
+                        code_context_str += f"\n--- {file_name} (lines {start_line}-{end_line}) ---\n{text}\n"
+                    else:
+                        code_context_str += f"\n--- Chunk {i+1} ---\n{str(chunk)}\n"
+                
+                api_prompt = f"{code_context_str}\n\nQuestion: {prompt}\n\nPlease answer based on the code above."
+            else:
+                api_prompt = prompt
+            
+            self._send_to_api(api_prompt)
+            self._last_command = None
+            return
+        
+        # === OFFLINE MODE: Use local LLM ===
         model_ctx = self.get_model_context_size()
 
         is_search_query = hasattr(self, '_last_command') and self._last_command in ['search', 'ds']

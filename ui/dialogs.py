@@ -8,7 +8,8 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton, QComboBox, 
     QSlider, QFileDialog, QGroupBox, QHBoxLayout, 
     QDialogButtonBox, QMessageBox, QRadioButton, QButtonGroup, 
-    QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QWidget, QApplication
+    QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QWidget, QApplication,
+    QLineEdit
 )
 from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QGuiApplication, QClipboard
@@ -196,7 +197,10 @@ class DisplayOptionsDialog(QDialog):
     def live_transparency_change(self, value):
         """Handle transparency slider changes"""
         if self.parent:
-            self.parent.setWindowOpacity(value / 100)
+            opacity = value / 100
+            self.parent.setWindowOpacity(opacity)
+            # Save to persistent settings
+            self.parent.settings.setValue("window_opacity", opacity)
 
     def showEvent(self, event):
         """Handle dialog show event"""
@@ -223,8 +227,8 @@ class PreferencesDialog(QDialog):
         
         self.setWindowTitle("Preferences")
         self.setModal(False)
-        self.setMinimumWidth(500)
-        self.setMinimumHeight(650)
+        self.setMinimumWidth(965)
+        self.setMinimumHeight(1230)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(20)
@@ -300,11 +304,11 @@ class PreferencesDialog(QDialog):
             "• 4096: Complex code (full programs, libraries)"
         )
         token_desc.setWordWrap(True)
+        token_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         token_desc.setStyleSheet("color: #888888; font-style: italic; font-size: 9pt;")
         response_layout.addWidget(token_desc)
 
-        # Token preset buttons
-        preset_layout = QHBoxLayout()
+        # CREATE BUTTONS FIRST
         self.token_512_btn = QPushButton("512 (Very Simple)")
         self.token_1024_btn = QPushButton("1024 (Simple)")
         self.token_2048_btn = QPushButton("2048 (Medium)")
@@ -318,11 +322,15 @@ class PreferencesDialog(QDialog):
                         (self.token_2048_btn, 2048), (self.token_4096_btn, 4096)]:
             btn.clicked.connect(lambda checked, v=val: self.set_token_limit(v))
 
+        # NOW create the layout and add buttons (centered)
+        preset_layout = QHBoxLayout()
+        preset_layout.addStretch()
         preset_layout.addWidget(self.token_512_btn)
         preset_layout.addWidget(self.token_1024_btn)
         preset_layout.addWidget(self.token_2048_btn)
         preset_layout.addWidget(self.token_4096_btn)
         preset_layout.addStretch()
+
         response_layout.addLayout(preset_layout)
 
         # Current token display
@@ -338,17 +346,21 @@ class PreferencesDialog(QDialog):
         self.token_time_label.setStyleSheet("color: #888888; font-style: italic;")
         response_layout.addWidget(self.token_time_label)
 
-        # Separator
+        # Separator (centered by default since it's full width)
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
         response_layout.addWidget(line)
 
-        # Response format
+        # Response format - centered layout
         format_label = QLabel("Response Format:")
         format_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        format_label.setAlignment(Qt.AlignmentFlag.AlignCenter)  # ← Center the label
         response_layout.addWidget(format_label)
-        
+
+        # Format radio buttons - centered
+        format_radio_layout = QHBoxLayout()
+        format_radio_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)  # ← Center the radio buttons
         self.markdown_radio = QRadioButton("Markdown Mode")
         self.markdown_radio.setToolTip(
             "Formats responses with rich Markdown:\n"
@@ -357,7 +369,7 @@ class PreferencesDialog(QDialog):
             "- Bold, italic, links\n"
             "- Best for technical content"
         )
-        
+
         self.conversation_radio = QRadioButton("Conversation Mode")
         self.conversation_radio.setToolTip(
             "Simple, clean conversation view:\n"
@@ -366,52 +378,269 @@ class PreferencesDialog(QDialog):
             "- Basic formatting (bold, italic)\n"
             "- Best for natural conversation"
         )
-        
+
         self.format_button_group = QButtonGroup(self)
         self.format_button_group.addButton(self.markdown_radio, 0)
         self.format_button_group.addButton(self.conversation_radio, 1)
-        
-        response_layout.addWidget(self.markdown_radio)
-        response_layout.addWidget(self.conversation_radio)
-        
+
+        format_radio_layout.addWidget(self.markdown_radio)
+        format_radio_layout.addWidget(self.conversation_radio)
+        response_layout.addLayout(format_radio_layout)
+
         format_desc = QLabel("Hover over options for details")
+        format_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)  # ← Center the description
         format_desc.setStyleSheet("color: #888888; font-style: italic;")
         response_layout.addWidget(format_desc)
-        
+
         response_group.setLayout(response_layout)
         layout.addWidget(response_group)
+
+        # === NVIDIA NIM ONLINE MODE SECTION ===
+        nvidia_group = QGroupBox("NVIDIA NIM Online Mode")
+        nvidia_layout = QVBoxLayout()
+        nvidia_layout.setSpacing(12)
+
+        # API Base URL input (NEW)
+        base_url_layout = QHBoxLayout()
+        base_url_label = QLabel("API Base URL:")
+        base_url_label.setMinimumWidth(60)
+        self.base_url_input = QLineEdit()
+        self.base_url_input.setPlaceholderText("https://integrate.api.nvidia.com/v1")
+        self.base_url_input.setMinimumWidth(350)
+        base_url_layout.addWidget(base_url_label)
+        base_url_layout.addWidget(self.base_url_input, 1)
+        nvidia_layout.addLayout(base_url_layout)
+
+        # API Key input with show/hide toggle
+        api_key_layout = QHBoxLayout()
+        api_key_label = QLabel("API Key:")
+        api_key_label.setMinimumWidth(60)
+        self.api_key_input = QLineEdit()
+        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_input.setPlaceholderText("nvapi-... enter your NVIDIA API key...")
+        self.api_key_input.setMinimumWidth(350)
+
+        # Show/hide password toggle button
+        self.show_key_btn = QPushButton("🌓")
+        self.show_key_btn.setFixedWidth(40)
+        self.show_key_btn.setToolTip("Show/hide API key")
+        self.show_key_btn.setCheckable(True)
+        self.show_key_btn.clicked.connect(self.toggle_api_key_visibility)
+
+        api_key_layout.addWidget(api_key_label)
+        api_key_layout.addWidget(self.api_key_input, 1)
+        api_key_layout.addWidget(self.show_key_btn)
+
+        # Load saved API key (with proper error handling)
+        nvidia_client = None
+        saved_key = ""
+        try:
+            from Tangi.utils.online_api import OnlineAPIClient
+            nvidia_client = OnlineAPIClient()
+            saved_key = nvidia_client.get_api_key()
+            if saved_key:
+                self.api_key_input.setText(saved_key)
+                logger.debug("Loaded saved NVIDIA API key")
+        except ImportError as e:
+            logger.error(f"Failed to import OnlineAPIClient: {e}")
+        except Exception as e:
+            logger.error(f"Error loading NVIDIA API key: {e}")
+
+        # Load saved Base URL
+        if nvidia_client:
+            try:
+                saved_base_url = nvidia_client.get_base_url()
+                if saved_base_url:
+                    self.base_url_input.setText(saved_base_url)
+                else:
+                    self.base_url_input.setText("https://integrate.api.nvidia.com/v1")
+                logger.debug(f"Loaded saved Base URL: {saved_base_url}")
+            except Exception as e:
+                logger.error(f"Error loading Base URL: {e}")
+        else:
+            self.base_url_input.setText("https://integrate.api.nvidia.com/v1")
+
+        # Status indicator for API key
+        self.key_status_label = QLabel()
+        self.key_status_label.setFixedWidth(20)
+        self.update_key_status_indicator(bool(saved_key))
+
+        # Add status indicator to layout
+        api_key_layout.addWidget(self.key_status_label)
+
+        nvidia_layout.addLayout(api_key_layout)
+
+        # Test connection button with status feedback
+        test_layout = QHBoxLayout()
+        self.test_connection_btn = QPushButton("Test Connection")
+        self.test_connection_btn.setToolTip("Test your API key with NVIDIA NIM servers")
+        self.test_connection_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.test_connection_btn.clicked.connect(self.test_nvidia_connection)
+
+        # Connection status label
+        self.connection_status = QLabel("")
+        self.connection_status.setStyleSheet("color: #888888; font-style: italic;")
+        self.connection_status.setVisible(False)
+
+        test_layout.addWidget(self.test_connection_btn)
+        test_layout.addWidget(self.connection_status)
+        test_layout.addStretch()
+        nvidia_layout.addLayout(test_layout)
+
+        # Model selection
+        model_layout = QHBoxLayout()
+        model_label = QLabel("Model:")
+        model_label.setMinimumWidth(60)
+        self.model_combo = QComboBox()
+        self.model_combo.addItems([
+            "mistralai/mistral-nemotron",      # Best for coding - 92.68% HumanEval
+            "deepseek-ai/deepseek-v3",          # Great for code & long context
+            "minimaxai/minimax-m2.5",           # Fast responses
+            "nvidia/llama-3.3-nemotron-super-49b-v1",  # Powerful reasoning
+            "qwen/qwen2.5-coder-32b-instruct",  # Specialized for code
+            "gpt-4o-mini",                      # OpenAI fallback
+            "gpt-4o"                            # OpenAI fallback
+        ])
+        self.model_combo.setToolTip(
+            "mistralai/mistral-nemotron: Best for coding (92.68% HumanEval)\n"
+            "deepseek-ai/deepseek-v3: Excellent for code generation\n"
+            "minimaxai/minimax-m2.5: Fast responses\n"
+            "nvidia/llama-3.3-nemotron-super-49b-v1: Powerful reasoning\n"
+            "qwen/qwen2.5-coder-32b-instruct: Specialized for code"
+        )
+
+        # Model info label (dynamic)
+        self.model_info_label = QLabel("")
+        self.model_info_label.setStyleSheet("color: #888888; font-size: 9pt;")
+        self.update_model_info_label(self.model_combo.currentText())
+
+        # Load saved model
+        if nvidia_client:
+            try:
+                saved_model = nvidia_client.get_model()
+                idx = self.model_combo.findText(saved_model)
+                if idx >= 0:
+                    self.model_combo.setCurrentIndex(idx)
+                    logger.debug(f"Loaded saved model: {saved_model}")
+            except Exception as e:
+                logger.error(f"Error loading saved model: {e}")
+
+        model_layout.addWidget(model_label)
+        model_layout.addWidget(self.model_combo, 1)
+        model_layout.addWidget(self.model_info_label)
+        model_layout.addStretch()
+
+        nvidia_layout.addLayout(model_layout)
+
+        # Current mode indicator (with dynamic styling)
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Current Mode:")
+        mode_label.setMinimumWidth(60)
+        self.mode_indicator = QLabel()
+
+        # Get current mode from parent with model info
+        is_online = hasattr(parent, 'online_mode') and parent.online_mode
+        model_loaded = hasattr(parent, 'llm') and parent.llm is not None
+
+        if is_online:
+            self.mode_indicator.setText("✔ Online (NVIDIA NIM)")
+            self.mode_indicator.setStyleSheet("color: #00ff00; font-weight: bold; background-color: #1e3a1e; padding: 2px 8px; border-radius: 3px;")
+        else:
+            # Show model name if loaded
+            if model_loaded and hasattr(parent, 'model_path') and parent.model_path:
+                model_name = os.path.basename(parent.model_path)
+                # Truncate long model names
+                if len(model_name) > 35:
+                    model_name = model_name[:32] + "..."
+                self.mode_indicator.setText(f"✖ Offline ({model_name})")
+            else:
+                self.mode_indicator.setText("✖ Offline (No Model Loaded)")
+            self.mode_indicator.setStyleSheet("color: #ffaa00; font-weight: bold; background-color: #3a2e1e; padding: 2px 8px; border-radius: 3px;")
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.mode_indicator)
+        mode_layout.addStretch()
+
+        nvidia_layout.addLayout(mode_layout)
+
+        # Separator line
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        nvidia_layout.addWidget(line)
+
+        # Info label with link styling
+        nvidia_info = QLabel(
+            "Get your NVIDIA API key from: "
+            '<a href="https://build.nvidia.com/models" style="color: #00aaff; text-decoration: none;">build.nvidia.com/models</a><br>'
+            "Online mode will use NVIDIA NIM hosted API instead of local LLM.<br>"
+            "Free tier: 40 requests per minute, no credit card required.<br>"
+            "Compatible with OpenAI API format - works with any OpenAI-compatible endpoint."
+        )
+        nvidia_info.setWordWrap(True)
+        nvidia_info.setOpenExternalLinks(True)
+        nvidia_info.setStyleSheet("color: #888888; font-size: 9pt; padding: 5px; background-color: rgba(0,0,0,0.2); border-radius: 3px;")
+
+        nvidia_layout.addWidget(nvidia_info)
+
+        nvidia_group.setLayout(nvidia_layout)
+        layout.addWidget(nvidia_group)
 
         # === DISPLAY SECTION ===
         display_group = QGroupBox("Display")
         display_layout = QVBoxLayout()
         display_layout.setSpacing(15)
-        
+
         # Theme selection
         theme_layout = QHBoxLayout()
         theme_label = QLabel("Theme:")
+        theme_label.setMinimumWidth(60)
         self.dark_radio = QRadioButton("Dark (Green)")
         self.light_radio = QRadioButton("Light")
-        
+
         theme_layout.addWidget(theme_label)
         theme_layout.addWidget(self.dark_radio)
         theme_layout.addWidget(self.light_radio)
         theme_layout.addStretch()
         display_layout.addLayout(theme_layout)
-        
-        # Window transparency
+
+        # Window transparency - with better visibility
         trans_layout = QVBoxLayout()
         trans_label = QLabel("Window Transparency:")
+        trans_label.setMinimumWidth(60)
         trans_layout.addWidget(trans_label)
-        
+
+        # Add a horizontal layout for slider and value display
+        slider_value_layout = QHBoxLayout()
+
         self.transparency_slider = QSlider(Qt.Orientation.Horizontal)
         self.transparency_slider.setRange(30, 100)
-        self.transparency_slider.setValue(int(self.parent.windowOpacity() * 100) if parent else 100)
-        trans_layout.addWidget(self.transparency_slider)
+        self.transparency_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.transparency_slider.setTickInterval(10)
+
+        # Load saved opacity from parent's settings
+        saved_opacity = self.parent.settings.value("window_opacity", 1.0, type=float)
+        self.transparency_slider.setValue(int(saved_opacity * 100))
+
+        # Add percentage label next to slider
+        self.transparency_value_label = QLabel(f"{int(saved_opacity * 100)}%")
+        self.transparency_value_label.setMinimumWidth(35)
+        self.transparency_value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        slider_value_layout.addWidget(self.transparency_slider, 1)
+        slider_value_layout.addWidget(self.transparency_value_label)
+
+        trans_layout.addLayout(slider_value_layout)
+
+        # Add a descriptive subtitle
+        trans_subtitle = QLabel("Lower values = more transparent")
+        trans_subtitle.setStyleSheet("color: #888888; font-size: 9pt; font-style: italic;")
+        trans_layout.addWidget(trans_subtitle)
+
         display_layout.addLayout(trans_layout)
-        
+
         display_group.setLayout(display_layout)
         layout.addWidget(display_group)
-
         # Connect signals
         self.dark_radio.toggled.connect(self.on_theme_toggled)
         self.light_radio.toggled.connect(self.on_theme_toggled)
@@ -419,6 +648,18 @@ class PreferencesDialog(QDialog):
         self.conversation_radio.toggled.connect(self.on_format_toggled)
         self.ram_slider.valueChanged.connect(self.on_ram_slider_changed)
         self.transparency_slider.valueChanged.connect(self.live_transparency_change)
+        
+        # ===== NVIDIA SIGNAL CONNECTIONS =====
+        self.base_url_input.textChanged.connect(self.save_nvidia_settings)
+        self.api_key_input.textChanged.connect(self.save_nvidia_settings)
+        self.model_combo.currentTextChanged.connect(self.save_nvidia_settings)
+        self.model_combo.currentTextChanged.connect(self.update_model_info_label)
+        
+        # Update model info label initially
+        self.update_model_info_label(self.model_combo.currentText())
+
+        # Store nvidia_client for later use
+        self.nvidia_client = nvidia_client
 
         layout.addStretch()
 
@@ -438,7 +679,125 @@ class PreferencesDialog(QDialog):
         
         apply_theme(self)
         self.adjustSize()
-
+    
+    # ==================== NVIDIA METHODS ====================
+    
+    def toggle_api_key_visibility(self, checked):
+        """Toggle API key visibility"""
+        if checked:
+            self.api_key_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.show_key_btn.setText("🌕")
+            self.show_key_btn.setToolTip("Hide API key")
+        else:
+            self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.show_key_btn.setText("🌑")
+            self.show_key_btn.setToolTip("Show API key")
+    
+    def update_key_status_indicator(self, has_key):
+        """Update API key status indicator"""
+        if has_key:
+            self.key_status_label.setText("✔")
+            self.key_status_label.setToolTip("API key is set")
+            self.key_status_label.setStyleSheet("color: #00ff00; font-weight: bold; font-size: 14px;")
+        else:
+            self.key_status_label.setText("✖")
+            self.key_status_label.setToolTip("No API key set")
+            self.key_status_label.setStyleSheet("color: #ff4444; font-weight: bold; font-size: 14px;")
+    
+    def update_model_info_label(self, model_name):
+        """Update model info label based on selection"""
+        info_map = {
+            "mistralai/mistral-nemotron": "(92.68% HumanEval - Best for coding, instruction following)",
+            "deepseek-ai/deepseek-v3": "(Excellent for code generation, long context)",
+            "minimaxai/minimax-m2.5": "(Fast responses, good for quick coding tasks)",
+            "nvidia/llama-3.3-nemotron-super-49b-v1": "(Powerful reasoning, tool calling)",
+            "qwen/qwen2.5-coder-32b-instruct": "(Specialized for code generation)",
+            "gpt-4o-mini": "(Fast, efficient - OpenAI)",
+            "gpt-4o": "(Best overall - OpenAI)"
+        }
+        self.model_info_label.setText(info_map.get(model_name, ""))
+    
+    def save_nvidia_settings(self):
+        """Save NVIDIA NIM settings"""
+        try:
+            from Tangi.utils.online_api import OnlineAPIClient
+            base_url = self.base_url_input.text().strip()
+            api_key = self.api_key_input.text().strip()
+            model = self.model_combo.currentText()
+            
+            client = OnlineAPIClient()
+            if base_url:
+                client.set_base_url(base_url)
+            if api_key:
+                client.set_api_key(api_key)
+            client.set_model(model)
+            
+            # Update parent if online mode is active
+            if hasattr(self.parent, 'online_mode') and self.parent.online_mode:
+                if hasattr(self.parent, 'openai_client'):
+                    self.parent.openai_client.set_base_url(base_url)
+                    self.parent.openai_client.set_api_key(api_key)
+                    self.parent.openai_client.set_model(model)
+                    
+            # Update status indicator
+            self.update_key_status_indicator(bool(api_key))
+            
+        except Exception as e:
+            logger.error(f"Error saving NVIDIA settings: {e}")
+    
+    def test_nvidia_connection(self):
+        """Test NVIDIA NIM API connection"""
+        try:
+            from Tangi.utils.online_api import OnlineAPIClient
+            
+            base_url = self.base_url_input.text().strip()
+            api_key = self.api_key_input.text().strip()
+            
+            if not api_key:
+                QMessageBox.warning(self, "No API Key", "Please enter an NVIDIA API key first.")
+                return
+            
+            if not base_url:
+                base_url = "https://integrate.api.nvidia.com/v1"
+            
+            # Update UI
+            self.test_connection_btn.setEnabled(False)
+            self.test_connection_btn.setText("Testing...")
+            self.connection_status.setText("Connecting to NVIDIA NIM...")
+            self.connection_status.setVisible(True)
+            QApplication.processEvents()
+            
+            client = OnlineAPIClient(api_key=api_key, base_url=base_url)
+            success = client.test_connection()
+            
+            # Restore UI
+            self.test_connection_btn.setEnabled(True)
+            self.test_connection_btn.setText("Test Connection")
+            
+            if success:
+                self.connection_status.setText("✅ Connection successful!")
+                self.connection_status.setStyleSheet("color: #00ff00;")
+                self.update_key_status_indicator(True)
+                QMessageBox.information(self, "Success", "NVIDIA NIM API connection successful!\n\nYou can now enable Online mode.\n\nFree tier: 40 requests per minute.")
+            else:
+                self.connection_status.setText("❌ Connection failed")
+                self.connection_status.setStyleSheet("color: #ff4444;")
+                QMessageBox.warning(self, "Failed", "Connection failed. Check your API key and internet connection.")
+            
+            # Auto-hide status after 3 seconds
+            QTimer.singleShot(3000, lambda: self.connection_status.setVisible(False))
+                
+        except Exception as e:
+            self.test_connection_btn.setEnabled(True)
+            self.test_connection_btn.setText("Test Connection")
+            self.connection_status.setText(f"Error: {str(e)[:50]}")
+            self.connection_status.setStyleSheet("color: #ff4444;")
+            self.connection_status.setVisible(True)
+            QTimer.singleShot(5000, lambda: self.connection_status.setVisible(False))
+            QMessageBox.critical(self, "Error", f"Connection test failed: {str(e)}")
+    
+    # ==================== THEME METHODS ====================
+    
     def on_theme_toggled(self, checked):
         """Handle theme radio button toggles"""
         if not checked:
@@ -481,7 +840,7 @@ class PreferencesDialog(QDialog):
                 
         finally:
             self._changing_theme = False
-
+    
     def refresh_theme(self):
         """Refresh dialog theme when application theme changes"""
         from Tangi.ui.theme import CURRENT_THEME, apply_theme
@@ -506,7 +865,9 @@ class PreferencesDialog(QDialog):
         
         # Force a repaint
         self.repaint()
-
+    
+    # ==================== FORMAT METHODS ====================
+    
     def on_format_toggled(self, checked):
         """Handle format radio button toggles"""
         if not checked:
@@ -522,7 +883,28 @@ class PreferencesDialog(QDialog):
         if hasattr(self.parent, 'set_response_format'):
             self.parent.set_response_format(new_format)
             logger.info(f"Response format changed to: {new_format}")
-
+    
+    def update_format_buttons(self):
+        """Update format buttons to match current format"""
+        if hasattr(self.parent, 'response_format'):
+            current_format = self.parent.response_format
+        else:
+            current_format = "markdown"
+        
+        try:
+            self.markdown_radio.toggled.disconnect(self.on_format_toggled)
+            self.conversation_radio.toggled.disconnect(self.on_format_toggled)
+        except:
+            pass
+        
+        self.markdown_radio.setChecked(current_format == "markdown")
+        self.conversation_radio.setChecked(current_format == "conversation")
+        
+        self.markdown_radio.toggled.connect(self.on_format_toggled)
+        self.conversation_radio.toggled.connect(self.on_format_toggled)
+    
+    # ==================== RAM METHODS ====================
+    
     def on_ram_slider_changed(self, value):
         """Handle RAM slider changes"""
         try:
@@ -557,47 +939,9 @@ class PreferencesDialog(QDialog):
                 
         except Exception as e:
             logger.error(f"Error updating RAM slider: {e}")
-
-    def live_transparency_change(self, value):
-        """Handle transparency slider changes"""
-        if self.parent:
-            self.parent.setWindowOpacity(value / 100)
-
-    def update_theme_buttons(self):
-        """Update theme buttons to match current theme"""
-        from Tangi.ui.theme import CURRENT_THEME
-        
-        try:
-            self.dark_radio.toggled.disconnect(self.on_theme_toggled)
-            self.light_radio.toggled.disconnect(self.on_theme_toggled)
-        except:
-            pass
-        
-        self.dark_radio.setChecked(CURRENT_THEME == "dark")
-        self.light_radio.setChecked(CURRENT_THEME == "light")
-        
-        self.dark_radio.toggled.connect(self.on_theme_toggled)
-        self.light_radio.toggled.connect(self.on_theme_toggled)
-
-    def update_format_buttons(self):
-        """Update format buttons to match current format"""
-        if hasattr(self.parent, 'response_format'):
-            current_format = self.parent.response_format
-        else:
-            current_format = "markdown"
-        
-        try:
-            self.markdown_radio.toggled.disconnect(self.on_format_toggled)
-            self.conversation_radio.toggled.disconnect(self.on_format_toggled)
-        except:
-            pass
-        
-        self.markdown_radio.setChecked(current_format == "markdown")
-        self.conversation_radio.setChecked(current_format == "conversation")
-        
-        self.markdown_radio.toggled.connect(self.on_format_toggled)
-        self.conversation_radio.toggled.connect(self.on_format_toggled)
-
+    
+    # ==================== TOKEN METHODS ====================
+    
     def update_token_buttons(self, current_tokens):
         """Highlight the active token button"""
         from Tangi.ui.theme import CURRENT_THEME
@@ -614,7 +958,7 @@ class PreferencesDialog(QDialog):
             if val == current_tokens:
                 btn.setStyleSheet(f"font-weight: bold; background-color: {highlight_color};")
                 break
-
+    
     def set_token_limit(self, value):
         """Handle token preset button clicks"""
         # Update the display
@@ -632,12 +976,47 @@ class PreferencesDialog(QDialog):
         self.update_token_buttons(value)
         
         logger.info(f"Token limit set to: {value}")
-
+    
+    # ==================== STORAGE METHODS ====================
+    
     def select_storage(self):
         """Handle storage directory selection"""
         if self.select_storage_callback:
             self.select_storage_callback()
-            
+    
+    # ==================== TRANSPARENCY METHODS ====================
+    
+    def live_transparency_change(self, value):
+        """Handle transparency slider changes"""
+        if self.parent:
+            opacity = value / 100
+            self.parent.setWindowOpacity(opacity)
+            # Save to persistent settings
+            self.parent.settings.setValue("window_opacity", opacity)
+            # Update the percentage label
+            if hasattr(self, 'transparency_value_label'):
+                self.transparency_value_label.setText(f"{value}%")
+                
+    # ==================== THEME BUTTON METHODS ====================
+    
+    def update_theme_buttons(self):
+        """Update theme buttons to match current theme"""
+        from Tangi.ui.theme import CURRENT_THEME
+        
+        try:
+            self.dark_radio.toggled.disconnect(self.on_theme_toggled)
+            self.light_radio.toggled.disconnect(self.on_theme_toggled)
+        except:
+            pass
+        
+        self.dark_radio.setChecked(CURRENT_THEME == "dark")
+        self.light_radio.setChecked(CURRENT_THEME == "light")
+        
+        self.dark_radio.toggled.connect(self.on_theme_toggled)
+        self.light_radio.toggled.connect(self.on_theme_toggled)
+    
+    # ==================== SHOW EVENT ====================
+    
     def showEvent(self, event):
         """Handle dialog show event"""
         super().showEvent(event)
@@ -651,16 +1030,72 @@ class PreferencesDialog(QDialog):
         # Update other UI elements
         self.update_format_buttons()
         
+        # Update RAM settings
         current_ram = getattr(self.parent, 'ram_percentage', DEFAULT_RAM_PERCENTAGE)
         self.ram_slider.setValue(current_ram)
         self.on_ram_slider_changed(current_ram)
         
+        # Update token settings
         current_tokens = getattr(self.parent, 'max_tokens_setting', 512)
         self.token_value_label.setText(f"Current setting: {current_tokens} tokens")
         est_time = current_tokens / 3
         self.token_time_label.setText(f"Estimated time on average CPU: ~{est_time:.0f} seconds")
         self.update_token_buttons(current_tokens)
+        
+        # Update mode indicator on show
+        self._update_mode_indicator()
+        
+        # Update NVIDIA API settings
+        if hasattr(self, 'nvidia_client') and self.nvidia_client:
+            # Update Base URL
+            current_base_url = self.nvidia_client.get_base_url()
+            if current_base_url:
+                self.base_url_input.setText(current_base_url)
+            
+            # Update API key
+            current_api_key = self.nvidia_client.get_api_key()
+            self.update_key_status_indicator(bool(current_api_key))
+            if current_api_key:
+                self.api_key_input.setText(current_api_key)
+        
+        # Update model selection
+        if hasattr(self, 'nvidia_client') and self.nvidia_client:
+            current_model = self.nvidia_client.get_model()
+            idx = self.model_combo.findText(current_model)
+            if idx >= 0:
+                self.model_combo.setCurrentIndex(idx)
+        
+        # Sync transparency slider with current window opacity
+        current_opacity = self.parent.windowOpacity()
+        self.transparency_slider.setValue(int(current_opacity * 100))
 
+    def _update_mode_indicator(self):
+        """Update the mode indicator with current status"""
+        # Get current mode from parent
+        is_online = hasattr(self.parent, 'online_mode') and self.parent.online_mode
+        model_loaded = hasattr(self.parent, 'llm') and self.parent.llm is not None
+        
+        if is_online:
+            self.mode_indicator.setText("✔ Online (NVIDIA NIM)")
+            self.mode_indicator.setStyleSheet(
+                "color: #00ff00; font-weight: bold; background-color: #1e3a1e; "
+                "padding: 2px 8px; border-radius: 3px;"
+            )
+        else:
+            # Show model name if loaded
+            if model_loaded and hasattr(self.parent, 'model_path') and self.parent.model_path:
+                model_name = os.path.basename(self.parent.model_path)
+                # Truncate long model names to prevent layout issues
+                if len(model_name) > 35:
+                    model_name = model_name[:32] + "..."
+                self.mode_indicator.setText(f"✖ Offline ({model_name})")
+            else:
+                self.mode_indicator.setText("✖ Offline (No Model Loaded)")
+            self.mode_indicator.setStyleSheet(
+                "color: #ffaa00; font-weight: bold; background-color: #3a2e1e; "
+                "padding: 2px 8px; border-radius: 3px;"
+            )
+            
 class AboutDialog(QDialog):
     """About dialog with donation information"""
     
@@ -703,7 +1138,7 @@ class AboutDialog(QDialog):
         "this tool, and moves him—and the woman who inspires him—closer to basic necessities many take for granted: "
         "stable electricity, running water, reliable internet, freedom from abuse, and a place to finally call home together.<br><br>"
         
-        "Thank you DeepSeek for when those times got hard!"
+        "Thank you to the open-source community for making this possible!"
     )
         label.setWordWrap(True)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
