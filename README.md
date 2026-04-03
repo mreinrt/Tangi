@@ -18,6 +18,10 @@ It includes a built-in **Retrieval-Augmented Generation (RAG)** system that inde
 
 ## Features
 
+![Main Window](media/Tangi.png)
+
+*Main widget LLM Inference Demo*
+
 ### Hardware-Aware Optimization
 - Automatic detection of physical vs logical CPU cores
 - NUMA-aware scheduling (multi-socket systems)
@@ -51,18 +55,6 @@ It includes a built-in **Retrieval-Augmented Generation (RAG)** system that inde
 - Automatic token budgeting
 - Context window management
 
-
-![Main Window](media/tangi.png)
-*Main widget LLM Inference Demo*
-
-![Main Window](media/tangi2.png)
-*Retrieval Augmented Generation Code Indexing*
-
-
-![Main Window](media/tangi3.png)
-*Tangi About Section With Love*
-
----
 
 ## Installation
 
