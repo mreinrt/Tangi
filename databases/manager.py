@@ -33,17 +33,39 @@ class DatabaseManager:
             c.execute("PRAGMA synchronous=NORMAL")
             c.execute("PRAGMA foreign_keys=ON")
             
+            # Create sessions table with online mode columns
             c.execute("""CREATE TABLE IF NOT EXISTS sessions(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT,
                 model TEXT,
+                online_mode INTEGER DEFAULT 0,
+                online_provider TEXT,
+                online_model TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            
+            # Add missing columns for existing databases
+            try:
+                c.execute("ALTER TABLE sessions ADD COLUMN online_mode INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                c.execute("ALTER TABLE sessions ADD COLUMN online_provider TEXT")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                c.execute("ALTER TABLE sessions ADD COLUMN online_model TEXT")
+            except sqlite3.OperationalError:
+                pass
+            
             c.execute("""CREATE TABLE IF NOT EXISTS messages(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
                 role TEXT,
                 text TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            
             c.execute("CREATE INDEX IF NOT EXISTS idx_text ON messages(text)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON messages(session_id)")
             
@@ -56,25 +78,30 @@ class DatabaseManager:
             logger.error(error_msg)
             return False, error_msg
     
-    def create_session(self, name, model_path=None):
+    def create_session(self, name, model_path=None, online_mode=False, online_provider=None, online_model=None):
         """Create a new session"""
         try:
             c = self.db.cursor()
-            c.execute("INSERT INTO sessions(name, model) VALUES (?, ?)", 
-                     (name.strip(), str(model_path) if model_path else ""))
+            c.execute("""INSERT INTO sessions(name, model, online_mode, online_provider, online_model) 
+                         VALUES (?, ?, ?, ?, ?)""", 
+                      (name.strip(), 
+                       str(model_path) if model_path else "",
+                       1 if online_mode else 0,
+                       online_provider,
+                       online_model))
             session_id = c.lastrowid
             self.db.commit()
-            logger.info(f"Created new session {session_id}: {name}")
+            logger.info(f"Created new session {session_id}: {name} (online_mode={online_mode}, provider={online_provider}, model={online_model})")
             return session_id
         except Exception as e:
             logger.error(f"Error creating session: {e}")
             raise
     
     def get_sessions(self, limit=50):
-        """Get list of sessions with message counts"""
+        """Get list of sessions with message counts and online mode info"""
         c = self.db.cursor()
         c.execute("""
-            SELECT id, name, model, created_at,
+            SELECT id, name, model, online_mode, online_provider, online_model, created_at,
                 (SELECT COUNT(*) FROM messages WHERE session_id = sessions.id) as msg_count
             FROM sessions 
             ORDER BY created_at DESC
@@ -83,10 +110,13 @@ class DatabaseManager:
         return c.fetchall()
     
     def get_session_info(self, session_id):
-        """Get session information"""
+        """Get session information including online mode"""
         c = self.db.cursor()
-        c.execute("SELECT name, model, created_at FROM sessions WHERE id = ?", (session_id,))
-        return c.fetchone()
+        c.execute("SELECT name, model, online_mode, online_provider, online_model, created_at FROM sessions WHERE id = ?", (session_id,))
+        result = c.fetchone()
+        if result:
+            return result
+        return None
     
     def get_session_messages(self, session_id):
         """Get all messages for a session"""
@@ -132,11 +162,21 @@ class DatabaseManager:
         self.db.commit()
     
     def update_session_model(self, session_id, model_path):
-        """Update the model associated with a session"""
+        """Update the local model associated with a session"""
         c = self.db.cursor()
         c.execute("UPDATE sessions SET model = ? WHERE id = ?", 
                  (str(model_path), session_id))
         self.db.commit()
+    
+    def update_session_online_mode(self, session_id, online_mode, online_provider=None, online_model=None):
+        """Update the online mode settings for a session"""
+        c = self.db.cursor()
+        c.execute("""UPDATE sessions 
+                    SET online_mode = ?, online_provider = ?, online_model = ? 
+                    WHERE id = ?""", 
+                (1 if online_mode else 0, online_provider, online_model, session_id))
+        self.db.commit()
+        logger.info(f"Updated session {session_id}: online_mode={online_mode}, provider={online_provider}, model={online_model}")
     
     def delete_session(self, session_id):
         """Delete a session and all its messages (cascade)"""

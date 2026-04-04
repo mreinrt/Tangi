@@ -1,3 +1,4 @@
+
 """
 Main window for Tangi application
 """
@@ -16,10 +17,10 @@ from PyQt6.QtWidgets import (
     QStatusBar, QLabel, QMenuBar, QSplitter, QInputDialog, QFileDialog,
     QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QPushButton,
     QDialogButtonBox, QApplication, QGroupBox, QListWidget, QListWidgetItem,
-    QRadioButton, QCheckBox, QTabWidget
+    QRadioButton, QCheckBox, QTabWidget, QSizePolicy, QLineEdit
 )
 from PyQt6.QtCore import Qt, QTimer, QMutex, QMutexLocker, QUrl, QSettings
-from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtGui import QFont, QTextCursor, QTextDocument, QTextCharFormat, QColor, QShortcut, QKeySequence
 
 from llama_cpp import Llama
 
@@ -48,10 +49,112 @@ from Tangi.ui.dialogs import (
 
 logger = logging.getLogger(__name__)
 
-
 class RawChat(QWidget):
     """Main chat window for Tangi"""
 
+# ==================== SEARCH METHODS ====================
+    def focus_find_bar(self):
+        """Focus the find input bar"""
+        self.find_input.setFocus()
+        self.find_input.selectAll()
+
+    def on_find_text_changed(self, text):
+        """Handle text changes - clear highlighting when empty"""
+        if not text:
+            self.clear_search_highlighting()
+
+    def execute_search(self):
+        """Execute search when Enter is pressed - highlights all matches"""
+        search_text = self.find_input.text()
+        if not search_text:
+            return
+        
+        # Highlight all matches (clears old highlights internally)
+        self.highlight_search_matches(search_text)
+
+    def highlight_search_matches(self, search_text):
+        """Highlight all occurrences of the search text (case-insensitive)"""
+        if not search_text:
+            return
+        
+        # Clear old highlights FIRST
+        self.clear_search_highlighting()
+        
+        original_cursor = self.chat.textCursor()
+        cursor = self.chat.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.chat.setTextCursor(cursor)
+        
+        highlight_format = QTextCharFormat()
+        highlight_format.setBackground(QColor("#ffff00"))
+        highlight_format.setForeground(QColor("#000000"))
+        
+        count = 0
+        
+        while self.chat.find(search_text, QTextDocument.FindFlag.FindWholeWords):
+            cursor = self.chat.textCursor()
+            cursor.mergeCharFormat(highlight_format)
+            count += 1
+        
+        self.chat.setTextCursor(original_cursor)
+        
+        if count > 0:
+            self.find_input.setPlaceholderText(f"Find in chat ({count} matches)")
+            # Jump to first match
+            self.find_and_select(search_text, forward=True)
+        else:
+            self.find_input.setPlaceholderText("Find in chat (no matches)")
+            self.flash_search_bar()
+
+    def find_and_select(self, search_text, forward=True):
+        """Find and select the first match (case-insensitive)"""
+        flags = QTextDocument.FindFlag.FindWholeWords
+        if not forward:
+            flags |= QTextDocument.FindFlag.FindBackward
+        
+        found = self.chat.find(search_text, flags)
+        if not found:
+            # Try wrapping around
+            cursor = self.chat.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+            self.chat.setTextCursor(cursor)
+            found = self.chat.find(search_text, flags)
+            if not found:
+                self.flash_search_bar()
+        return found
+
+    def clear_search_highlighting(self):
+        """Clear all search highlighting"""
+        # Save current cursor position
+        original_cursor = self.chat.textCursor()
+        
+        # Select the entire document
+        cursor = self.chat.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+        
+        # Create a blank format and apply it to everything
+        blank_format = QTextCharFormat()
+        blank_format.clearBackground()
+        blank_format.clearForeground()
+        cursor.mergeCharFormat(blank_format)
+        
+        # Also try setCharFormat as a backup
+        cursor.setCharFormat(blank_format)
+        
+        # Restore cursor
+        self.chat.setTextCursor(original_cursor)
+        
+        # Reset placeholder
+        self.find_input.setPlaceholderText("Find in chat...")
+
+    def flash_search_bar(self):
+        """Flash the search bar to indicate no matches found"""
+        original_style = self.find_input.styleSheet()
+        self.find_input.setStyleSheet("background-color: #ff4444;")
+        QTimer.singleShot(200, lambda: self.find_input.setStyleSheet(original_style))
+        
+    # ==================== INIT ====================
     def __init__(self):
         super().__init__()
 
@@ -113,35 +216,31 @@ class RawChat(QWidget):
         self.status_bar.addWidget(self.status_label, 1)
         
         # === ADD ONLINE MODE TOGGLE ===
-        self.online_mode = False  # State variable
-        self.api_client = None  # Universal API client (supports multiple providers)
+        self.online_mode = False
+        self.api_client = None
 
-        # Create toggle button
-        self.online_toggle = QPushButton("✖ Offline")
-        self.online_toggle.setCheckable(True)
-        self.online_toggle.setChecked(False)
-        self.online_toggle.setFixedWidth(100)
-        self.online_toggle.setStyleSheet("""
-            QPushButton {
-                background-color: #444444;
-                color: #ffffff;
-                border: 1px solid #888888;
-                border-radius: 3px;
-                padding: 2px 8px;
-            }
-            QPushButton:checked {
-                background-color: #0066cc;
-                color: #ffffff;
-                border: 1px solid #00ff00;
-            }
-            QPushButton:hover {
-                background-color: #555555;
-            }
-        """)
-        self.online_toggle.clicked.connect(self.toggle_online_mode)
-        self.status_bar.addPermanentWidget(self.online_toggle)
+        # === ADD FIND IN CHAT BAR TO STATUS BAR (RIGHT SIDE) ===
+        # Create find/search container
+        find_container = QWidget()
+        find_layout = QHBoxLayout(find_container)
+        find_layout.setContentsMargins(0, 0, 5, 0)
+        find_layout.setSpacing(4)
 
-        # Initialize API client (supports NVIDIA NIM, OpenAI, Together AI, DeepSeek)
+
+        # Find input field
+        self.find_input = QLineEdit()
+        self.find_input.setPlaceholderText("Find in chat...")
+        self.find_input.setFixedWidth(150)
+        self.find_input.setClearButtonEnabled(True)
+        self.find_input.textChanged.connect(self.on_find_text_changed)
+        self.find_input.returnPressed.connect(self.execute_search)
+        self.find_input.installEventFilter(self)
+
+        find_layout.addWidget(self.find_input)
+
+        self.status_bar.addPermanentWidget(find_container)
+        
+        # Initialize API client
         self.init_api_client()
 
         # ==================== MAIN SPLITTER ====================
@@ -176,6 +275,8 @@ class RawChat(QWidget):
 
         # ==================== MENU ====================
         menubar = QMenuBar()
+
+        # File menu
         file_menu = menubar.addMenu("File")
         file_menu.addAction("New Session", self.new_session)
         file_menu.addAction("Load Model", self.load_model)
@@ -186,14 +287,56 @@ class RawChat(QWidget):
         file_menu.addSeparator()
         file_menu.addAction("Manage Index", self.show_index_manager)
 
+        # Preferences menu
         preferences_menu = menubar.addMenu("Preferences")
         preferences_menu.addAction("Preferences...", self.show_preferences)
 
+        # About menu
         about_menu = menubar.addMenu("About")
         about_menu.addAction("About Tangi", self.show_about)
 
-        layout.setMenuBar(menubar)
+        # === ADD ONLINE MODE TOGGLE TO TOP RIGHT ===
+        # Create a single container for the right corner
+        right_corner_widget = QWidget()
+        right_layout = QHBoxLayout(right_corner_widget)
+        right_layout.setContentsMargins(0, 0, 10, 0)
+        right_layout.setSpacing(10)
 
+        # Add spacer to push toggle to the right edge
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        right_layout.addWidget(spacer)
+
+        # Create toggle button
+        self.online_toggle = QPushButton("✖ Offline")
+        self.online_toggle.setCheckable(True)
+        self.online_toggle.setChecked(False)
+        self.online_toggle.setFixedWidth(100)
+        self.online_toggle.setStyleSheet("""
+            QPushButton {
+                background-color: #444444;
+                color: #ffffff;
+                border: 1px solid #888888;
+                border-radius: 3px;
+                padding: 4px 8px;
+            }
+            QPushButton:checked {
+                background-color: #0066cc;
+                color: #ffffff;
+                border: 1px solid #00ff00;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+        """)
+        self.online_toggle.clicked.connect(self.toggle_online_mode)
+
+        right_layout.addWidget(self.online_toggle)
+
+        # Set the single corner widget (only ONE call to setCornerWidget)
+        menubar.setCornerWidget(right_corner_widget, Qt.Corner.TopRightCorner)
+
+        layout.setMenuBar(menubar)
         self.history = []
         self.response_format = "markdown"
 
@@ -217,7 +360,7 @@ class RawChat(QWidget):
 
         # Auto-create default session
         self.auto_create_session()
-        
+
         # Load last model after UI is ready
         QTimer.singleShot(100, self.load_last_model)
 
@@ -230,7 +373,11 @@ class RawChat(QWidget):
         # RAG model setting
         self.rag_model = None
 
-    # ==================== API CLIENT METHODS (Multi-Provider) ====================
+        # Setup keyboard shortcuts for find
+        self.find_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self.find_shortcut.activated.connect(self.focus_find_bar)
+
+    # ==================== API CLIENT METHODS ====================
     
     def init_api_client(self):
         """Initialize the universal API client (supports NVIDIA NIM, OpenAI, Together AI, DeepSeek)"""
@@ -254,7 +401,7 @@ class RawChat(QWidget):
         except ImportError as e:
             logger.error(f"Failed to import API client: {e}")
             self.api_client = None
-    
+
     def toggle_online_mode(self, checked):
         """Toggle between online and offline mode"""
         self.online_mode = checked
@@ -262,37 +409,7 @@ class RawChat(QWidget):
         if checked:
             # Check if API key is configured
             if self.api_client and self.api_client.get_api_key():
-                # Check if user has chosen to always auto-unload
-                always_unload = self.settings.value("always_unload_on_online", False, type=bool)
-                
-                if self.llm and not always_unload:
-                    # Create a custom dialog with "Don't ask again" checkbox
-                    msg_box = QMessageBox(self)
-                    msg_box.setWindowTitle("Unload Local Model?")
-                    msg_box.setText(f"A local model is currently loaded ({os.path.basename(self.model_path) if self.model_path else 'Unknown'}).\n\nSwitching to online mode. Unloading the local model will free up RAM.\n\nDo you want to unload it?")
-                    msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                    
-                    # Add "Don't ask again" checkbox
-                    dont_ask = QCheckBox("Always unload automatically when switching to online mode")
-                    msg_box.setCheckBox(dont_ask)
-                    
-                    reply = msg_box.exec()
-                    
-                    # Save preference if checkbox is checked
-                    if dont_ask.isChecked():
-                        self.settings.setValue("always_unload_on_online", True)
-                    
-                    if reply == QMessageBox.StandardButton.Yes:
-                        self.append_message("system", "Unloading local model to free RAM...")
-                        self.unload_model()
-                        QApplication.processEvents()
-                    else:
-                        self.append_message("system", "Local model remains loaded (RAM still in use).")
-                elif self.llm and always_unload:
-                    # Auto-unload without asking
-                    self.append_message("system", "Auto-unloading local model to free RAM...")
-                    self.unload_model()
-                    QApplication.processEvents()
+                # ... existing code for unload dialog ...
                 
                 # Get provider info for status message
                 provider_info = self.api_client.get_provider_info()
@@ -301,8 +418,20 @@ class RawChat(QWidget):
                 self.online_toggle.setText("✔ Online")
                 self.append_message("system", f"Online mode activated. Using {provider_name} for responses.")
                 logger.info(f"Online mode activated with {provider_name}")
+                
+                # === UPDATE CURRENT SESSION IN DATABASE ===
+                if self.db_manager and self.session_id:
+                    online_provider = provider_name
+                    online_model = self.api_client.get_model()
+                    self.db_manager.update_session_online_mode(
+                        self.session_id, 
+                        True, 
+                        online_provider, 
+                        online_model
+                    )
+                    logger.info(f"Updated session {self.session_id} to online mode with {online_provider} - {online_model}")
             else:
-                # No API key - revert to offline (same as before)
+                # No API key - revert to offline
                 self.online_mode = False
                 self.online_toggle.setChecked(False)
                 self.online_toggle.setText("✖ Offline")
@@ -317,6 +446,11 @@ class RawChat(QWidget):
             self.online_toggle.setText("✖ Offline")
             self.append_message("system", "Offline mode activated.")
             logger.info("Offline mode activated")
+            
+            # === UPDATE CURRENT SESSION IN DATABASE ===
+            if self.db_manager and self.session_id:
+                self.db_manager.update_session_online_mode(self.session_id, False, None, None)
+                logger.info(f"Updated session {self.session_id} to offline mode")
             
             # Clear conversation history
             if self.api_client:
@@ -349,6 +483,7 @@ class RawChat(QWidget):
         # Process in background
         QTimer.singleShot(10, lambda: self._send_to_api(prompt))
     
+
     def _send_to_api(self, prompt):
         """Send message to the configured API provider"""
         try:
@@ -360,8 +495,8 @@ class RawChat(QWidget):
             # Send message
             reply = self.api_client.send_message(prompt, system_prompt)
             
-            # Clean response
-            cleaned_reply = clean_response(reply)
+            # Clean response with is_online=True to skip repetition detection
+            cleaned_reply = clean_response(reply, is_online=True) 
             
             # Stop animation and display
             self.stop_thinking_animation()
@@ -476,8 +611,15 @@ class RawChat(QWidget):
     # ==================== EVENT HANDLING ====================
 
     def eventFilter(self, obj, event):
-        """Handle key events for input widget"""
-        if obj is self.input and event.type() == event.Type.KeyPress:
+        """Handle key events for input widget and focus events for find bar"""
+        # Clear highlighting when search bar loses focus
+        if hasattr(self, 'find_input') and obj == self.find_input and event.type() == event.Type.FocusOut:
+            print("DEBUG: Focus out - clearing highlighting")  # Add this debug line
+            self.clear_search_highlighting()
+            return True
+        
+        # Handle text input key presses
+        if hasattr(self, 'input') and obj is self.input and event.type() == event.Type.KeyPress:
             key = event.key()
             if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
                 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
@@ -485,6 +627,7 @@ class RawChat(QWidget):
                 event.accept()
                 self.process_enter_key()
                 return True
+        
         return super().eventFilter(obj, event)
 
     def process_enter_key(self):
@@ -1215,9 +1358,24 @@ class RawChat(QWidget):
                 if not self.session_id:
                     session_name = "Auto Session"
                     if self.db_manager and self.db_manager.db:
-                        self.session_id = self.db_manager.create_session(session_name, str(self.model_path) if self.model_path else "")
+                        # Get current online mode info
+                        online_mode = self.online_mode
+                        online_provider = None
+                        online_model = None
+                        if self.api_client and online_mode:
+                            provider_info = self.api_client.get_provider_info()
+                            online_provider = provider_info.get("name", "")
+                            online_model = self.api_client.get_model()
+                        
+                        self.session_id = self.db_manager.create_session(
+                            session_name, 
+                            str(self.model_path) if self.model_path else "",
+                            online_mode,
+                            online_provider,
+                            online_model
+                        )
                         self.append_message("system", f"Auto-created session: {session_name}")
-                        logger.info(f"Auto-created session {self.session_id}: {session_name}")
+                        logger.info(f"Auto-created session {self.session_id}: {session_name} (online_mode={online_mode})")
                     else:
                         self.session_id = 1
                         self.append_message("system", f"Started temporary session: {session_name}")
@@ -1248,14 +1406,38 @@ class RawChat(QWidget):
                     logger.info(f"Cleared KV cache for old session {self.session_id}")
 
                 if self.db_manager and self.db_manager.db:
-                    self.session_id = self.db_manager.create_session(name.strip(), str(self.model_path) if self.model_path else "")
+                    # Get current online mode info
+                    online_mode = self.online_mode
+                    online_provider = None
+                    online_model = None
+                    if self.api_client and online_mode:
+                        provider_info = self.api_client.get_provider_info()
+                        online_provider = provider_info.get("name", "")
+                        online_model = self.api_client.get_model()
+                    
+                    self.session_id = self.db_manager.create_session(
+                        name.strip(), 
+                        str(self.model_path) if self.model_path else "",
+                        online_mode,
+                        online_provider,
+                        online_model
+                    )
                     self.chat.clear()
                     self.history.clear()
                     self._last_speaker = None
                     self.current_kv_cache = None
                     self.append_message("system", f" Started new session: {name.strip()} (ID: {self.session_id})")
+                    
+                    # Show mode info
+                    if online_mode and online_provider:
+                        self.append_message("system", f" Mode: Online ({online_provider} - {online_model})")
+                    elif self.model_path:
+                        self.append_message("system", f" Mode: Offline ({os.path.basename(self.model_path)})")
+                    else:
+                        self.append_message("system", f" Mode: Offline (No model loaded)")
+                    
                     self.append_message("system", "-" * 50)
-                    logger.info(f"Created new session {self.session_id}: {name}")
+                    logger.info(f"Created new session {self.session_id}: {name} (online_mode={online_mode})")
                 else:
                     self.session_id = int(time.time())
                     self.chat.clear()
@@ -1285,7 +1467,7 @@ class RawChat(QWidget):
 
             dialog = QDialog(self)
             dialog.setWindowTitle("Load Session")
-            dialog.setMinimumWidth(700)
+            dialog.setMinimumWidth(900)
             dialog.setMinimumHeight(400)
 
             layout = QVBoxLayout(dialog)
@@ -1293,8 +1475,8 @@ class RawChat(QWidget):
             layout.addWidget(instructions)
 
             table = QTableWidget()
-            table.setColumnCount(5)
-            table.setHorizontalHeaderLabels(["ID", "Session Name", "Model", "Created", "Messages"])
+            table.setColumnCount(6)
+            table.setHorizontalHeaderLabels(["ID", "Session Name", "Model", "Mode", "Created", "Messages"])
             table.horizontalHeader().setStretchLastSection(True)
             table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
             table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -1302,26 +1484,38 @@ class RawChat(QWidget):
             table.setColumnWidth(0, 50)
             table.setColumnWidth(1, 200)
             table.setColumnWidth(2, 300)
-            table.setColumnWidth(3, 150)
-            table.setColumnWidth(4, 80)
+            table.setColumnWidth(3, 100)
+            table.setColumnWidth(4, 150)
+            table.setColumnWidth(5, 80)
 
             table.setRowCount(len(sessions))
             for i, session in enumerate(sessions):
-                id, name, model, created, msg_count = session
+                # Unpack all 8 values from the new session format
+                id, name, model, online_mode, online_provider, online_model, created, msg_count = session
                 created_local = format_timestamp(created)
 
-                if model:
-                    model_display = os.path.basename(model)
-                    if len(model_display) > 40:
-                        model_display = "..." + model_display[-37:]
+                # Display model info based on mode
+                if online_mode:
+                    if online_provider and online_model:
+                        model_display = f"🌐 {online_provider}: {online_model}"
+                    else:
+                        model_display = "🌐 Online Mode"
+                    mode_display = "Online"
                 else:
-                    model_display = "Unknown"
+                    if model:
+                        model_display = os.path.basename(model)
+                        if len(model_display) > 35:
+                            model_display = "..." + model_display[-32:]
+                    else:
+                        model_display = "No model"
+                    mode_display = "Offline"
 
                 table.setItem(i, 0, QTableWidgetItem(str(id)))
                 table.setItem(i, 1, QTableWidgetItem(name or "Unnamed"))
                 table.setItem(i, 2, QTableWidgetItem(model_display))
-                table.setItem(i, 3, QTableWidgetItem(created_local))
-                table.setItem(i, 4, QTableWidgetItem(str(msg_count)))
+                table.setItem(i, 3, QTableWidgetItem(mode_display))
+                table.setItem(i, 4, QTableWidgetItem(created_local))
+                table.setItem(i, 5, QTableWidgetItem(str(msg_count)))
 
             table.resizeColumnsToContents()
             table.setColumnWidth(1, 200)
@@ -1343,6 +1537,8 @@ class RawChat(QWidget):
 
         except Exception as e:
             logger.error(f"Error loading sessions: {e}")
+            import traceback
+            traceback.print_exc()
             self.append_message("system", f"Error loading sessions: {str(e)[:100]}")
 
     def switch_to_session(self, session_id):
@@ -1353,20 +1549,69 @@ class RawChat(QWidget):
                 self.append_message("system", f"Session {session_id} not found")
                 return
 
-            session_name, model_path, session_created = session_info
+            # Handle both old and new session formats
+            if len(session_info) == 6:
+                session_name, model_path, online_mode, online_provider, online_model, session_created = session_info
+            else:
+                # Old format (before online mode columns were added)
+                session_name, model_path, session_created = session_info
+                online_mode = False
+                online_provider = None
+                online_model = None
+            
             messages = self.db_manager.get_session_messages(session_id)
             created_display = format_timestamp(session_created) if session_created else "Unknown"
 
+            # Clear current state
             self.chat.clear()
             self.history.clear()
             self.session_id = session_id
-            self.model_path = model_path or self.model_path
+            self.model_path = model_path if model_path and not online_mode else None
+            
+            # Restore online mode state if the session was in online mode
+            if online_mode and online_provider and online_model:
+                # Check if we have API client configured
+                if self.api_client and self.api_client.get_api_key():
+                    # Switch to online mode without triggering the unload dialog
+                    self.online_mode = True
+                    self.online_toggle.setChecked(True)
+                    self.online_toggle.setText("✔ Online")
+                    
+                    # Ensure the API client has the correct model
+                    self.api_client.set_model(online_model)
+                    
+                    self.append_message("system", f" Loaded session: {session_name} (ID: {session_id})")
+                    self.append_message("system", f" Mode: Online ({online_provider} - {online_model})")
+                    self.append_message("system", f" Created: {created_display}")
+                    self.append_message("system", f" Messages: {len(messages)}")
+                    self.append_message("system", "-" * 50)
+                else:
+                    # API key not configured, show warning but still load messages
+                    self.online_mode = False
+                    self.online_toggle.setChecked(False)
+                    self.online_toggle.setText("✖ Offline")
+                    self.append_message("system", f" Loaded session: {session_name} (ID: {session_id})")
+                    self.append_message("system", f" Mode: Online ({online_provider} - {online_model}) - API key not configured")
+                    self.append_message("system", f" Created: {created_display}")
+                    self.append_message("system", f" Messages: {len(messages)}")
+                    self.append_message("system", "-" * 50)
+                    self.append_message("system", " Warning: API key not configured. Please check Preferences to enable online mode.")
+            else:
+                # Offline mode session
+                self.online_mode = False
+                self.online_toggle.setChecked(False)
+                self.online_toggle.setText("✖ Offline")
+                
+                self.append_message("system", f" Loaded session: {session_name} (ID: {session_id})")
+                if model_path:
+                    self.append_message("system", f" Mode: Offline ({os.path.basename(model_path)})")
+                else:
+                    self.append_message("system", f" Mode: Offline (No model loaded)")
+                self.append_message("system", f" Created: {created_display}")
+                self.append_message("system", f" Messages: {len(messages)}")
+                self.append_message("system", "-" * 50)
 
-            self.append_message("system", f" Loaded session: {session_name} (ID: {session_id})")
-            self.append_message("system", f" Created: {created_display}")
-            self.append_message("system", f" Messages: {len(messages)}")
-            self.append_message("system", "-" * 50)
-
+            # Load messages
             for role, text, timestamp in messages:
                 if role == "user":
                     self.append_message("user", text)
@@ -1380,10 +1625,12 @@ class RawChat(QWidget):
             self.append_message("system", "-" * 50)
             self.append_message("system", " Session loaded. You can continue chatting.")
 
-            logger.info(f"Switched to session {session_id}: {session_name}")
+            logger.info(f"Switched to session {session_id}: {session_name} (online_mode={online_mode})")
 
         except Exception as e:
             logger.error(f"Error switching to session {session_id}: {e}")
+            import traceback
+            traceback.print_exc()
             self.append_message("system", f"Error loading session: {str(e)[:100]}")
 
     def manage_sessions(self):
@@ -1401,7 +1648,7 @@ class RawChat(QWidget):
 
             dialog = QDialog(self)
             dialog.setWindowTitle("Manage Sessions")
-            dialog.setMinimumWidth(800)
+            dialog.setMinimumWidth(900)
             dialog.setMinimumHeight(500)
 
             layout = QVBoxLayout(dialog)
@@ -1409,8 +1656,8 @@ class RawChat(QWidget):
             layout.addWidget(instructions)
 
             table = QTableWidget()
-            table.setColumnCount(5)
-            table.setHorizontalHeaderLabels(["ID", "Session Name", "Model", "Created", "Messages"])
+            table.setColumnCount(6)
+            table.setHorizontalHeaderLabels(["ID", "Session Name", "Model", "Mode", "Created", "Messages"])
             table.horizontalHeader().setStretchLastSection(True)
             table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
             table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
@@ -1418,40 +1665,54 @@ class RawChat(QWidget):
 
             table.setColumnWidth(0, 50)
             table.setColumnWidth(1, 200)
-            table.setColumnWidth(2, 300)
-            table.setColumnWidth(3, 150)
-            table.setColumnWidth(4, 80)
+            table.setColumnWidth(2, 250)
+            table.setColumnWidth(3, 100)
+            table.setColumnWidth(4, 150)
+            table.setColumnWidth(5, 80)
 
             table.setRowCount(len(sessions))
             for i, session in enumerate(sessions):
-                id, name, model, created, msg_count = session
+                # Unpack all 8 values from the new session format
+                id, name, model, online_mode, online_provider, online_model, created, msg_count = session
                 created_local = format_timestamp(created)
 
-                if model:
-                    model_display = os.path.basename(model)
-                    if len(model_display) > 40:
-                        model_display = "..." + model_display[-37:]
+                # Display model info based on mode
+                if online_mode:
+                    if online_provider and online_model:
+                        model_display = f"🌐 {online_provider}: {online_model}"
+                    else:
+                        model_display = "🌐 Online Mode"
+                    mode_display = "Online"
                 else:
-                    model_display = "Unknown"
+                    if model:
+                        model_display = os.path.basename(model)
+                        if len(model_display) > 35:
+                            model_display = "..." + model_display[-32:]
+                    else:
+                        model_display = "No model"
+                    mode_display = "Offline"
 
                 id_item = QTableWidgetItem(str(id))
                 name_item = QTableWidgetItem(name or "Unnamed")
                 model_item = QTableWidgetItem(model_display)
+                mode_item = QTableWidgetItem(mode_display)
                 created_item = QTableWidgetItem(created_local)
                 msg_item = QTableWidgetItem(str(msg_count))
 
-                for item in [id_item, name_item, model_item, created_item, msg_item]:
+                # Store session ID in each item
+                for item in [id_item, name_item, model_item, mode_item, created_item, msg_item]:
                     item.setData(Qt.ItemDataRole.UserRole, id)
 
                 table.setItem(i, 0, id_item)
                 table.setItem(i, 1, name_item)
                 table.setItem(i, 2, model_item)
-                table.setItem(i, 3, created_item)
-                table.setItem(i, 4, msg_item)
+                table.setItem(i, 3, mode_item)
+                table.setItem(i, 4, created_item)
+                table.setItem(i, 5, msg_item)
 
             table.resizeColumnsToContents()
             table.setColumnWidth(1, 200)
-            table.setColumnWidth(2, 300)
+            table.setColumnWidth(2, 250)
             layout.addWidget(table)
 
             button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
@@ -1482,7 +1743,7 @@ class RawChat(QWidget):
             layout.addWidget(button_box)
 
             total_sessions = len(sessions)
-            total_messages = sum(s[4] for s in sessions)
+            total_messages = sum(msg_count for _, _, _, _, _, _, _, msg_count in sessions)
             stats_label = QLabel(f"Total: {total_sessions} sessions, {total_messages} messages")
             stats_label.setStyleSheet("padding: 5px; background-color: #333333; color: #00ff00;")
             layout.addWidget(stats_label)
@@ -1548,7 +1809,8 @@ class RawChat(QWidget):
         for row in selected_rows:
             session_id = int(table.item(row, 0).text())
             session_name = table.item(row, 1).text()
-            msg_count = int(table.item(row, 4).text())
+            # msg_count is now at column index 5 (was 4 before adding Mode column)
+            msg_count = int(table.item(row, 5).text())
 
             session_ids.append(session_id)
             session_details.append(f"  - {session_name} (ID: {session_id}, {msg_count} messages)")
@@ -1578,6 +1840,7 @@ class RawChat(QWidget):
 
                 self.db_manager.delete_sessions(session_ids)
 
+                # Remove rows from table (iterate in reverse to maintain indices)
                 for row in reversed(selected_rows):
                     table.removeRow(row)
 

@@ -1066,8 +1066,11 @@ class PreferencesDialog(QDialog):
                 self.model_combo.setCurrentIndex(idx)
         
         # Sync transparency slider with current window opacity
+        # Disconnect signal to prevent saving when setting value
+        self.transparency_slider.valueChanged.disconnect(self.live_transparency_change)
         current_opacity = self.parent.windowOpacity()
         self.transparency_slider.setValue(int(current_opacity * 100))
+        self.transparency_slider.valueChanged.connect(self.live_transparency_change)
 
     def _update_mode_indicator(self):
         """Update the mode indicator with current status"""
@@ -1112,20 +1115,20 @@ class AboutDialog(QDialog):
         layout.setSpacing(15)
 
         label = QLabel(
-        "Tangi was created by Mike (BigSlimThic), a self-taught developer from Philadelphia who has faced extraordinary challenges. "
+        "Tangi was created by BigSlimThic, a self-taught developer from Philadelphia who has faced extraordinary challenges. "
         "Growing up on the tough streets of Philly and later struggling to survive with no stable residency since 18, "
         "he's experienced homelessness, unstable housing, and countless days wondering where the next meal would come from. "
         "Now based in the Philippines, he continues to face daily hardships—living without running water and electricity, "
         "and the constant uncertainty that comes with unstable residency.<br><br>"
         
-        "Despite these circumstances, Mike taught himself Linux—specifically Gentoo—and software engineering from the ground up. "
+        "Despite these circumstances, BigSlim taught himself Linux—specifically Gentoo—and software engineering from the ground up. "
         "Every line of code in Tangi was written on hardware most would consider obsolete, against odds that would have stopped most people. "
-        "But what keeps him going is his girlfriend, who works as a kasambahay (stay-in domestic helper) for an abusive boss. "
-        "She endures long hours and mistreatment, all while dreaming of a better life for herself and her family. "
-        "Her strength reminds Mike every day why he can't give up. The streets of Philadelphia taught him resilience; "
+        "But what keeps him going is his girlfriend, who works as a kasambahay (stay-in domestic helper) for an abusive boss that "
+        "only lets her take off one day every month! She endures long hours while dreaming of a better life for herself and her family. "
+        "Her strength reminds BigSlim every day why he can't give up. The streets of Philadelphia taught him resilience; "
         "Gentoo taught him that you can build something powerful from the ground up if you're willing to put in the work.<br><br>"
         
-        "Tangi exists because Mike refuses to let his circumstances define his future—and because he dreams of a day when his girlfriend "
+        "Tangi exists because BigSlim refuses to let his circumstances define his future—and because he dreams of a day when his girlfriend "
         "no longer has to work for someone who mistreats her, when her family has enough, and when they can finally build a life together "
         "with dignity and stability. It's proof that where you come from doesn't determine where you're going.<br><br>"
         
@@ -1134,11 +1137,10 @@ class AboutDialog(QDialog):
         "for the families who go without, and for anyone fighting for something better. If a guy from Philly with no running water "
         "can build this, imagine what you can do.<br><br>"
         
-        "If you find value in Tangi, consider supporting its creator. Your support helps Mike continue developing and improving "
+        "If you find value in Tangi, consider supporting its creator. Your support helps BigSlim continue developing and improving "
         "this tool, and moves him—and the woman who inspires him—closer to basic necessities many take for granted: "
         "stable electricity, running water, reliable internet, freedom from abuse, and a place to finally call home together.<br><br>"
         
-        "Thank you to the open-source community for making this possible!"
     )
         label.setWordWrap(True)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)

@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.2.0] - 2026-04-05
+
+### Major New Features
+
+#### Online Mode Improvements
+- **Response repetition detection disabled** while online mode is active - prevents false truncation of valid responses
+- **Online mode session persistence** - database now stores online provider and model for each session
+- **Session string search** - find in chat bar in status bar with Enter-to-search and X-to-clear
+
+#### UI Improvements
+- **Online/Offline toggle button repositioned** - moved from status bar to top-right corner of menu bar
+- **Session management enhancements** - Load Session and Manage Sessions dialogs now display online/offline mode with provider details
+
+### Bug Fixes
+- **Transparency event handling bug** - fixed issue where transparency would decrease by 1% every time Preferences dialog was opened
+- **Online mode session creation** - sessions now correctly save online mode status when toggled
+- **Session deletion column index mismatch** - fixed after adding Mode column to session tables
+- **Load Session dialog unpacking error** - now properly handles new session format with online mode columns
+- **Old session backward compatibility** - gracefully handles sessions created before online mode columns were added
+
+### Database Schema Updates
+- Added `online_mode`, `online_provider`, `online_model` columns to sessions table
+- Backward compatible with existing sessions
+
+---
+
 ## [1.1.0] - 2026-04-03
 
 ### Major New Features

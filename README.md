@@ -5,6 +5,45 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Optimized: OpenBLAS](https://img.shields.io/badge/Optimized-OpenBLAS-green.svg)](https://www.openblas.net/)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/mreinrt/Tangi/releases)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)](https://github.com/mreinrt/Tangi)
+[![RAG](https://img.shields.io/badge/RAG-Supported-brightgreen.svg)](https://github.com/mreinrt/Tangi)
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [System Requirements](#system-requirements)
+- [Security & Privacy](#security--privacy)
+- [Features](#features)
+  - [Dual-Mode Operation](#dual-mode-operation)
+  - [Hardware-Aware Optimization](#hardware-aware-optimization)
+  - [RAG System (Code Intelligence)](#rag-system-code-intelligence)
+  - [Code Indexing](#code-indexing)
+  - [Interface](#interface)
+  - [Performance](#performance)
+  - [Cloud API Support](#cloud-api-support)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+  - [Local Mode (Offline)](#local-mode-offline)
+  - [Online Mode (Cloud API)](#online-mode-cloud-api)
+- [RAG Workflow](#rag-workflow-when-to-use-which-command)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Commands](#commands)
+  - [General](#general)
+  - [Hugging Face](#hugging-face)
+  - [RAG](#rag)
+- [Architecture](#architecture)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+- [Performance Guidelines](#performance-guidelines)
+- [Version History](#version-history)
+- [Recent Updates](#recent-updates)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+- [Support](#support)
+- [Donations](#donations)
 
 ---
 
@@ -14,7 +53,29 @@ Tangi is an AI assistant designed for developers who want **fast, hardware-aware
 
 It includes a built-in **Retrieval-Augmented Generation (RAG)** system that indexes your codebase, enabling accurate, context-grounded responses.
 
-**New in v1.1.0:** Tangi now supports **Online Mode** with NVIDIA NIM API integration, offering cloud-accelerated responses (40 requests/minute free tier, no credit card required) alongside local LLM inference.
+**Latest:** v1.2.0 adds session string search, online mode persistence (sessions now store provider/model info), UI improvements, and bug fixes. Still supports NVIDIA NIM API (40 requests/min free tier).
+
+---
+
+## System Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| **CPU** | 2 cores | 4+ cores |
+| **RAM** | 8 GB | 16 GB |
+| **Storage** | 10 GB | 20 GB (for multiple models) |
+| **Python** | 3.12+ | 3.12+ |
+| **OS** | Linux, Windows, macOS | Linux (Gentoo/Debian optimized) |
+| **Internet** | Optional (offline mode) | Required for online mode |
+
+---
+
+## Security & Privacy
+
+- **Local Mode**: All processing happens on your machine. No data leaves your system.
+- **Online Mode**: Your prompts are sent to your configured API provider. Choose providers with privacy policies you trust.
+- **API Keys**: Stored locally in Qt's secure settings. Never transmitted except to your chosen API endpoint.
+- **Chat History**: Stored unencrypted locally in `~/.Tangi/chatlogs.db`. Encrypted storage planned for future release.
 
 ---
 
@@ -171,6 +232,20 @@ python -m Tangi
 
 ---
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+F` | Focus find in chat bar |
+| `F3` | Find next match (when find bar is active) |
+| `Shift+F3` | Find previous match |
+| `Esc` | Close find bar |
+| `Ctrl+U` | Unload current model |
+| `Enter` | Send message (main input) |
+| `Shift+Enter` | New line in message input |
+
+---
+
 ## Commands
 
 ### General
@@ -240,6 +315,32 @@ optimal_settings = {
 
 ---
 
+## Troubleshooting
+
+### Common Issues
+
+#### Model won't load
+- Ensure you have enough free RAM (8GB minimum, 16GB recommended)
+- Check that the file is a valid GGUF format
+- Verify file permissions
+
+#### Online mode connection fails
+- Check your API key in Preferences
+- Verify internet connection
+- Ensure the API base URL is correct
+
+#### RAG search returns no results
+- Make sure you've indexed your codebase: `/index /path/to/code`
+- Verify an embedding model is installed: `/get-rag`
+- Check that you've selected an active codebase in Manage Index
+
+#### High memory usage
+- Unload the local model when using online mode (File → Unload Model)
+- Reduce context size in Preferences
+- Clear chat history periodically
+
+---
+
 ## Performance Guidelines
 
 | System | Threads | Batch | Context |
@@ -258,23 +359,71 @@ optimal_settings = {
 
 ---
 
-## Recent Updates (v1.1.0)
+## Version History
 
-### Added
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+| Version | Release Date | Highlights |
+|---------|--------------|------------|
+| v1.2.0 | 2025-04-05 | Session persistence, find in chat, transparency fix |
+| v1.1.0 | 2026-04-03 | NVIDIA NIM API, online mode |
+| v1.0.0 | 2026-03-20 | Initial release |
+
+---
+
+## Recent Updates
+
+### v1.2.0 (Current Stable)
+
+#### Added
+- **Session string search** - Find in chat bar in status bar (Ctrl+F, Enter to search, X to clear)
+- **Online mode session persistence** - Database now stores online provider and model for each session
+- **Model unload option** - File menu option to unload local model and free RAM
+- **Auto-unload local model** - Automatically unloads when switching to online mode (with optional "Don't ask again")
+
+#### Changed
+- **Online/Offline toggle button** - Repositioned from status bar to top-right corner of menu bar
+- **Session management** - Load Session and Manage Sessions dialogs now show online/offline mode with provider details
+- **Response repetition detection** - Disabled while online mode is active to prevent false truncation
+
+#### Fixed
+- **Transparency event handling bug** - Fixed issue where transparency would decrease by 1% every time Preferences dialog was opened
+- **Online mode session creation** - Sessions now correctly save online mode status when toggled
+- **Session deletion column index mismatch** - Fixed after adding Mode column to session tables
+- **Load Session dialog unpacking error** - Now properly handles new session format
+
+---
+
+### v1.1.0
+
+#### Added
 - NVIDIA NIM API integration with online/offline toggle
 - Auto-unload local model when switching to online mode
 - Window transparency persistence across sessions
 - API Base URL configuration in preferences
 - Universal OnlineAPIClient (supports any OpenAI-compatible endpoint)
 
-### Changed
+#### Changed
 - RAG search now uses online API when available (faster)
 - Centered response settings buttons in preferences
 
-### Fixed
+#### Fixed
 - Missing `live_transparency_change` method
 
 ---
+
+### v1.0.0 (Initial Release)
+
+- Local LLM inference with GGUF model support
+- RAG (Retrieval Augmented Generation) for codebase indexing
+- `/search` and `/ds` commands for code intelligence
+- SQLite database for chat sessions
+- Hugging Face CLI integration
+- Dark/Light theme support
+- OpenBLAS optimization
+
+---
+
 
 ## License
 

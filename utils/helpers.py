@@ -12,7 +12,7 @@ from collections import Counter
 logger = logging.getLogger(__name__)
 
 
-def clean_response(text):
+def clean_response(text, is_online=False):
     """Universal response cleaner for ANY model - prevents repetition loops"""
     if not text:
         return text
@@ -36,47 +36,49 @@ def clean_response(text):
     if len(text) > 8000:
         text = text[:8000] + "\n\n[Response truncated due to length]"
     
-    # Check for paragraph-level repetition
-    if len(text) > 300:
-        paragraphs = re.split(r'\n\s*\n', text)
-        if len(paragraphs) > 4:
-            seen_paragraphs = {}
-            clean_paragraphs = []
-            
-            for i, para in enumerate(paragraphs):
-                if len(para.strip()) > 40:
-                    sig = para[:60].strip().lower()
-                    
-                    if sig in seen_paragraphs:
-                        last_pos = seen_paragraphs[sig]
-                        if i - last_pos < 3:
-                            continue
-                    
-                    seen_paragraphs[sig] = i
-                    clean_paragraphs.append(para)
-                else:
-                    clean_paragraphs.append(para)
-            
-            if len(clean_paragraphs) < len(paragraphs):
-                text = '\n\n'.join(clean_paragraphs)
-    
-    # Check for sentence/trigram repetition
-    words = text.split()
-    if len(words) > 100:
-        trigrams = [' '.join(words[i:i+3]) for i in range(len(words)-2)]
-        trigram_counts = Counter(trigrams)
+    # SKIP repetition detection for online mode (NVIDIA API is reliable)
+    if not is_online:
+        # Check for paragraph-level repetition
+        if len(text) > 300:
+            paragraphs = re.split(r'\n\s*\n', text)
+            if len(paragraphs) > 4:
+                seen_paragraphs = {}
+                clean_paragraphs = []
+                
+                for i, para in enumerate(paragraphs):
+                    if len(para.strip()) > 40:
+                        sig = para[:60].strip().lower()
+                        
+                        if sig in seen_paragraphs:
+                            last_pos = seen_paragraphs[sig]
+                            if i - last_pos < 3:
+                                continue
+                        
+                        seen_paragraphs[sig] = i
+                        clean_paragraphs.append(para)
+                    else:
+                        clean_paragraphs.append(para)
+                
+                if len(clean_paragraphs) < len(paragraphs):
+                    text = '\n\n'.join(clean_paragraphs)
         
-        repeated_sequences = [seq for seq, count in trigram_counts.items() 
-                            if count >= 4 and len(seq.split()) == 3]
-        
-        if repeated_sequences:
-            for seq in repeated_sequences:
-                first_idx = text.find(seq)
-                second_idx = text.find(seq, first_idx + len(seq))
-                if second_idx != -1:
-                    text = text[:second_idx].strip()
-                    text += "\n\n[Response truncated - repetition detected]"
-                    break
+        # Check for sentence/trigram repetition
+        words = text.split()
+        if len(words) > 100:
+            trigrams = [' '.join(words[i:i+3]) for i in range(len(words)-2)]
+            trigram_counts = Counter(trigrams)
+            
+            repeated_sequences = [seq for seq, count in trigram_counts.items() 
+                                if count >= 4 and len(seq.split()) == 3]
+            
+            if repeated_sequences:
+                for seq in repeated_sequences:
+                    first_idx = text.find(seq)
+                    second_idx = text.find(seq, first_idx + len(seq))
+                    if second_idx != -1:
+                        text = text[:second_idx].strip()
+                        text += "\n\n[Response truncated - repetition detected]"
+                        break
     
     # If cleaning removed too much, return original
     if len(text) < len(original_text) * 0.3 and len(original_text) > 100:
