@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Optimized: OpenBLAS](https://img.shields.io/badge/Optimized-OpenBLAS-green.svg)](https://www.openblas.net/)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/mreinrt/Tangi/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/mreinrt/Tangi/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)](https://github.com/mreinrt/Tangi)
 [![RAG](https://img.shields.io/badge/RAG-Supported-brightgreen.svg)](https://github.com/mreinrt/Tangi)
 
