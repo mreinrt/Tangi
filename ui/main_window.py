@@ -52,6 +52,150 @@ logger = logging.getLogger(__name__)
 class RawChat(QWidget):
     """Main chat window for Tangi"""
 
+    def open_session_prompts_dialog(self):
+        """Open dialog showing all user prompts in current session"""
+        if not self.history:
+            QMessageBox.information(self, "Session Prompts", "No prompts found in current session.")
+            return
+        
+        # Collect all user prompts from the history list
+        prompts = []
+        for i, entry in enumerate(self.history):
+            if entry.startswith("User:"):
+                prompt_text = entry[5:].strip()
+                if prompt_text:
+                    display_text = prompt_text[:80] + "..." if len(prompt_text) > 80 else prompt_text
+                    prompts.append({
+                        'text': prompt_text,
+                        'display': display_text,
+                        'index': len(prompts) + 1
+                    })
+        
+        if not prompts:
+            QMessageBox.information(self, "Session Prompts", "No user prompts found.")
+            return
+        
+        # Create dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Session Prompts")
+        dialog.setMinimumWidth(550)
+        dialog.setMinimumHeight(450)
+        
+        layout = QVBoxLayout(dialog)
+        
+        instructions = QLabel("Double-click a prompt or select and click 'Jump To' to find and highlight it in the chat.")
+        instructions.setWordWrap(True)
+        instructions.setStyleSheet("color: #888888; font-style: italic;")
+        layout.addWidget(instructions)
+        
+        # List widget for prompts
+        prompts_list = QListWidget()
+        for prompt in prompts:
+            item = QListWidgetItem(f"[{prompt['index']}] {prompt['display']}")
+            item.setData(Qt.ItemDataRole.UserRole, prompt['text'])
+            # Add tooltip with the full prompt text
+            item.setToolTip(prompt['text'])
+            prompts_list.addItem(item)
+        
+        # Connect double-click signal
+        prompts_list.itemDoubleClicked.connect(self.jump_to_prompt_from_item)
+        layout.addWidget(prompts_list)
+        
+        # Button layout
+        button_layout = QHBoxLayout()
+        
+        def jump_to_selected():
+            current_item = prompts_list.currentItem()
+            if current_item:
+                prompt_text = current_item.data(Qt.ItemDataRole.UserRole)
+                if prompt_text:
+                    self.clear_search_highlighting()
+                    self.find_input.setText(prompt_text)
+                    self.execute_search()
+                    dialog.accept()
+        
+        jump_btn = QPushButton("Jump To Selected")
+        jump_btn.clicked.connect(jump_to_selected)
+        button_layout.addWidget(jump_btn)
+        
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        
+        apply_theme(dialog)
+        dialog.exec()
+
+    def jump_to_prompt_from_item(self, item):
+        """Jump to a prompt from list item (used by double-click)"""
+        prompt_text = item.data(Qt.ItemDataRole.UserRole)
+        if prompt_text:
+            self.clear_search_highlighting()
+            self.find_input.setText(prompt_text)
+            self.execute_search()
+            # Close the dialog
+            for child in self.findChildren(QDialog):
+                if child.windowTitle() == "Session Prompts":
+                    child.accept()
+                    break
+                
+    def jump_to_prompt_from_list(self, item):
+        """Handle double-click on a prompt in the list"""
+        prompt_text = item.data(Qt.ItemDataRole.UserRole + 1)
+        if prompt_text:
+            self.clear_search_highlighting()
+            self.find_input.setText(prompt_text)
+            self.execute_search()
+            # Close the dialog
+            for child in self.findChildren(QDialog):
+                if child.windowTitle() == "Session Prompts":
+                    child.accept()
+                    break
+    
+    def jump_to_prompt(self, item=None):
+        """Jump to the selected prompt in the chat"""
+        # Get selected item
+        if item is None:
+            item = self.prompts_list.currentItem()
+        
+        if not item:
+            QMessageBox.warning(self, "No Selection", "Please select a prompt to jump to.")
+            return
+        
+        position = item.data(Qt.ItemDataRole.UserRole)
+        
+        if position is not None:
+            # Move cursor to the position
+            cursor = self.chat.textCursor()
+            cursor.setPosition(position)
+            self.chat.setTextCursor(cursor)
+            self.chat.ensureCursorVisible()
+            
+            # Highlight the line briefly
+            self.highlight_current_line()
+    
+    def highlight_current_line(self):
+        """Briefly highlight the current line to show where we jumped"""
+        cursor = self.chat.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+        
+        format = QTextCharFormat()
+        format.setBackground(QColor("#ffff00"))
+        format.setForeground(QColor("#000000"))
+        cursor.mergeCharFormat(format)
+        
+        # Clear highlight after 1 second
+        QTimer.singleShot(1000, lambda: self.clear_line_highlight(cursor))
+    
+    def clear_line_highlight(self, cursor):
+        """Clear the line highlight"""
+        format = QTextCharFormat()
+        format.clearBackground()
+        format.clearForeground()
+        cursor.mergeCharFormat(format)
+        
 # ==================== SEARCH METHODS ====================
     def focus_find_bar(self):
         """Focus the find input bar"""
@@ -105,6 +249,18 @@ class RawChat(QWidget):
         else:
             self.find_input.setPlaceholderText("Find in chat (no matches)")
             self.flash_search_bar()
+            
+    def highlight_search_term(self, search_term):
+            """Highlight a specific search term in the chat"""
+            if not search_term:
+                return
+            
+            # Clear any existing highlighting
+            self.clear_search_highlighting()
+            
+            # Set the search input and execute search
+            self.find_input.setText(search_term)
+            self.execute_search()
 
     def find_and_select(self, search_text, forward=True):
         """Find and select the first match (case-insensitive)"""
@@ -215,30 +371,34 @@ class RawChat(QWidget):
         self.status_label = QLabel("Ready")
         self.status_bar.addWidget(self.status_label, 1)
         
+        # Create toggle button
+        self.online_toggle = QPushButton("✖ Offline")
+        self.online_toggle.setCheckable(True)
+        self.online_toggle.setChecked(False)
+        self.online_toggle.setFixedWidth(100)
+        self.online_toggle.setStyleSheet("""
+            QPushButton {
+                background-color: #444444;
+                color: #ffffff;
+                border: 1px solid #888888;
+                border-radius: 3px;
+                padding: 2px 8px;
+            }
+            QPushButton:checked {
+                background-color: #0066cc;
+                color: #ffffff;
+                border: 1px solid #00ff00;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+        """)
+        self.online_toggle.clicked.connect(self.toggle_online_mode)
+        self.status_bar.addPermanentWidget(self.online_toggle)
+        
         # === ADD ONLINE MODE TOGGLE ===
         self.online_mode = False
         self.api_client = None
-
-        # === ADD FIND IN CHAT BAR TO STATUS BAR (RIGHT SIDE) ===
-        # Create find/search container
-        find_container = QWidget()
-        find_layout = QHBoxLayout(find_container)
-        find_layout.setContentsMargins(0, 0, 5, 0)
-        find_layout.setSpacing(4)
-
-
-        # Find input field
-        self.find_input = QLineEdit()
-        self.find_input.setPlaceholderText("Find in chat...")
-        self.find_input.setFixedWidth(150)
-        self.find_input.setClearButtonEnabled(True)
-        self.find_input.textChanged.connect(self.on_find_text_changed)
-        self.find_input.returnPressed.connect(self.execute_search)
-        self.find_input.installEventFilter(self)
-
-        find_layout.addWidget(self.find_input)
-
-        self.status_bar.addPermanentWidget(find_container)
         
         # Initialize API client
         self.init_api_client()
@@ -282,8 +442,7 @@ class RawChat(QWidget):
         file_menu.addAction("Load Model", self.load_model)
         file_menu.addAction("Unload Model", self.unload_model)
         file_menu.addSeparator()
-        file_menu.addAction("Load Session", self.load_session)
-        file_menu.addAction("Manage Sessions", self.manage_sessions)
+        file_menu.addAction("Load/Manage Sessions", self.manage_sessions)
         file_menu.addSeparator()
         file_menu.addAction("Manage Index", self.show_index_manager)
 
@@ -295,48 +454,39 @@ class RawChat(QWidget):
         about_menu = menubar.addMenu("About")
         about_menu.addAction("About Tangi", self.show_about)
 
-        # === ADD ONLINE MODE TOGGLE TO TOP RIGHT ===
         # Create a single container for the right corner
         right_corner_widget = QWidget()
         right_layout = QHBoxLayout(right_corner_widget)
         right_layout.setContentsMargins(0, 0, 10, 0)
         right_layout.setSpacing(10)
 
-        # Add spacer to push toggle to the right edge
+        # Spacer to push to the right edge
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         right_layout.addWidget(spacer)
 
-        # Create toggle button
-        self.online_toggle = QPushButton("✖ Offline")
-        self.online_toggle.setCheckable(True)
-        self.online_toggle.setChecked(False)
-        self.online_toggle.setFixedWidth(100)
-        self.online_toggle.setStyleSheet("""
-            QPushButton {
-                background-color: #444444;
-                color: #ffffff;
-                border: 1px solid #888888;
-                border-radius: 3px;
-                padding: 4px 8px;
-            }
-            QPushButton:checked {
-                background-color: #0066cc;
-                color: #ffffff;
-                border: 1px solid #00ff00;
-            }
-            QPushButton:hover {
-                background-color: #555555;
-            }
-        """)
-        self.online_toggle.clicked.connect(self.toggle_online_mode)
+        # Session Prompts button (NEW)
+        self.session_prompts_btn = QPushButton("Session Prompts")
+        self.session_prompts_btn.setFixedWidth(140)
+        self.session_prompts_btn.setToolTip("Jump to any user prompt in this session")
+        self.session_prompts_btn.clicked.connect(self.open_session_prompts_dialog)
+        right_layout.addWidget(self.session_prompts_btn)
 
-        right_layout.addWidget(self.online_toggle)
+        # Find input field
+        self.find_input = QLineEdit()
+        self.find_input.setPlaceholderText("Find in chat...")
+        self.find_input.setFixedWidth(150)
+        self.find_input.setClearButtonEnabled(True)
+        self.find_input.textChanged.connect(self.on_find_text_changed)
+        self.find_input.returnPressed.connect(self.execute_search)
+        self.find_input.installEventFilter(self)
 
-        # Set the single corner widget (only ONE call to setCornerWidget)
+        right_layout.addWidget(self.find_input)
+
         menubar.setCornerWidget(right_corner_widget, Qt.Corner.TopRightCorner)
 
         layout.setMenuBar(menubar)
+
         self.history = []
         self.response_format = "markdown"
 
@@ -1497,9 +1647,9 @@ class RawChat(QWidget):
                 # Display model info based on mode
                 if online_mode:
                     if online_provider and online_model:
-                        model_display = f"🌐 {online_provider}: {online_model}"
+                        model_display = f"{online_provider}: {online_model}"
                     else:
-                        model_display = "🌐 Online Mode"
+                        model_display = "Online Mode"
                     mode_display = "Online"
                 else:
                     if model:
@@ -1632,9 +1782,165 @@ class RawChat(QWidget):
             import traceback
             traceback.print_exc()
             self.append_message("system", f"Error loading session: {str(e)[:100]}")
+            
+    def search_sessions_dialog(self, manage_dialog=None):
+        """Open dialog to search for sessions containing specific text"""
+        # Get search query from user
+        query, ok = QInputDialog.getText(self, "Search Sessions", "Enter search text:", QLineEdit.EchoMode.Normal, "")
+        
+        if not ok or not query.strip():
+            return
+        
+        search_text = query.strip().lower()
+        
+        # Get all sessions
+        sessions = self.db_manager.get_sessions(1000)
+        
+        if not sessions:
+            QMessageBox.information(self, "Search Sessions", "No sessions found in database.")
+            return
+        
+        # Search for sessions containing the query in name or messages
+        matching_sessions = []
+        
+        for session in sessions:
+            id, name, model, online_mode, online_provider, online_model, created, msg_count = session
+            
+            # Check if session name contains search text as whole word
+            name_match = name and re.search(r'\b' + re.escape(search_text) + r'\b', name.lower()) is not None
+            
+            # Get messages for this session
+            messages = self.db_manager.get_session_messages(id)
+            message_match = False
+            matching_message_preview = ""
+            matching_role = ""
+            matching_text = ""
+            
+            for role, text, timestamp in messages:
+                # Exact word boundary matching
+                if re.search(r'\b' + re.escape(search_text) + r'\b', text.lower()):
+                    message_match = True
+                    matching_role = role
+                    matching_text = text
+                    preview = text[:100].replace('\n', ' ')
+                    matching_message_preview = f"Match in {role}: {preview}..."
+                    break
+            
+            if name_match or message_match:
+                if name_match and message_match:
+                    display_status = f"✓ Name match + Message match"
+                elif name_match:
+                    display_status = f"✓ Name match"
+                else:
+                    display_status = f"✓ Message match: {matching_message_preview[:80]}..."
+                
+                if online_mode:
+                    if online_provider and online_model:
+                        model_display = f"{online_provider}: {online_model}"
+                    else:
+                        model_display = "Online Mode"
+                else:
+                    if model:
+                        model_display = os.path.basename(model)
+                        if len(model_display) > 30:
+                            model_display = "..." + model_display[-27:]
+                    else:
+                        model_display = "No model"
+                
+                matching_sessions.append({
+                    'id': id,
+                    'name': name or "Unnamed",
+                    'model_display': model_display,
+                    'mode': "Online" if online_mode else "Offline",
+                    'created': created,
+                    'msg_count': msg_count,
+                    'status': display_status,
+                    'match_type': 'name' if name_match else 'message',
+                    'matching_role': matching_role,
+                    'matching_text': matching_text[:200] if matching_text else ""
+                })
+        
+        if not matching_sessions:
+            QMessageBox.information(self, "Search Sessions", f"No sessions found containing '{search_text}'.")
+            return
+        
+        # Create results dialog
+        result_dialog = QDialog(self)
+        result_dialog.setWindowTitle(f"Search Results: '{search_text}'")
+        result_dialog.setMinimumWidth(800)
+        result_dialog.setMinimumHeight(500)
+        
+        layout = QVBoxLayout(result_dialog)
+        
+        count_label = QLabel(f"Found {len(matching_sessions)} session(s) containing '{search_text}':")
+        count_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(count_label)
+        
+        results_list = QListWidget()
+        for session in matching_sessions:
+            display_text = f"[{session['id']}] {session['name']} | {session['model_display']} | {session['mode']} | Messages: {session['msg_count']}"
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.ItemDataRole.UserRole, session['id'])
+            
+            # Build detailed tooltip with HTML and max width (text wraps)
+            tooltip_text = f"""<div style="max-width: 400px; white-space: normal;">
+    <b>Session:</b> {session['name']}<br>
+    <b>ID:</b> {session['id']}<br>
+    <b>Messages:</b> {session['msg_count']}<br>
+    <b>Match:</b> {session['status']}<br>
+    """
+            
+            # Add message preview if it's a message match
+            if session['match_type'] == 'message' and session['matching_text']:
+                preview_text = session['matching_text'][:200]
+                tooltip_text += f"<br><b>Message Preview:</b><br>{preview_text}..."
+            
+            tooltip_text += "</div>"
+            
+            item.setToolTip(tooltip_text)
+            results_list.addItem(item)
+        
+        layout.addWidget(results_list)
+        
+        button_layout = QHBoxLayout()
+        
+        def load_selected_session():
+            current_item = results_list.currentItem()
+            if current_item:
+                session_id = current_item.data(Qt.ItemDataRole.UserRole)
+                search_term = search_text  # Capture the original search term
+                result_dialog.accept()  # Close the search dialog
+                if manage_dialog:
+                    manage_dialog.accept()  # Close the manage sessions dialog
+                
+                # Load the session
+                self.switch_to_session(session_id)
+                
+                # After dialogs are closed and session loads, highlight the search term
+                QTimer.singleShot(300, lambda: self.highlight_search_term(search_term))
+            else:
+                QMessageBox.warning(self, "No Selection", "Please select a session to load.")
+        
+        # Load Selected button
+        load_btn = QPushButton("Load Selected")
+        load_btn.clicked.connect(load_selected_session)
+        button_layout.addWidget(load_btn)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(result_dialog.accept)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # Double-click to load
+        results_list.itemDoubleClicked.connect(load_selected_session)
+        
+        apply_theme(result_dialog)
+        result_dialog.exec()
 
     def manage_sessions(self):
-        """Open session management dialog"""
+        """Open session management dialog with Load, Rename, and Delete capabilities"""
         if not self.db_manager or not self.db_manager.db:
             self.append_message("system", "Database not available")
             return
@@ -1652,7 +1958,7 @@ class RawChat(QWidget):
             dialog.setMinimumHeight(500)
 
             layout = QVBoxLayout(dialog)
-            instructions = QLabel("Select sessions to manage (use Ctrl/Cmd for multiple):")
+            instructions = QLabel("Select a session to Load, Rename, or Delete:")
             layout.addWidget(instructions)
 
             table = QTableWidget()
@@ -1660,7 +1966,7 @@ class RawChat(QWidget):
             table.setHorizontalHeaderLabels(["ID", "Session Name", "Model", "Mode", "Created", "Messages"])
             table.horizontalHeader().setStretchLastSection(True)
             table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-            table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
+            table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
             table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
             table.setColumnWidth(0, 50)
@@ -1672,16 +1978,14 @@ class RawChat(QWidget):
 
             table.setRowCount(len(sessions))
             for i, session in enumerate(sessions):
-                # Unpack all 8 values from the new session format
                 id, name, model, online_mode, online_provider, online_model, created, msg_count = session
                 created_local = format_timestamp(created)
 
-                # Display model info based on mode
                 if online_mode:
                     if online_provider and online_model:
-                        model_display = f"🌐 {online_provider}: {online_model}"
+                        model_display = f"{online_provider}: {online_model}"
                     else:
-                        model_display = "🌐 Online Mode"
+                        model_display = "Online Mode"
                     mode_display = "Online"
                 else:
                     if model:
@@ -1699,7 +2003,6 @@ class RawChat(QWidget):
                 created_item = QTableWidgetItem(created_local)
                 msg_item = QTableWidgetItem(str(msg_count))
 
-                # Store session ID in each item
                 for item in [id_item, name_item, model_item, mode_item, created_item, msg_item]:
                     item.setData(Qt.ItemDataRole.UserRole, id)
 
@@ -1715,11 +2018,34 @@ class RawChat(QWidget):
             table.setColumnWidth(2, 250)
             layout.addWidget(table)
 
+
             button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+
+            # Search Sessions button
+            search_btn = QPushButton("Search Sessions")
+            search_btn.setToolTip("Search for sessions containing specific text")
+            search_btn.clicked.connect(lambda: self.search_sessions_dialog(dialog))
+            button_box.addButton(search_btn, QDialogButtonBox.ButtonRole.ActionRole)
 
             select_all_btn = QPushButton("Select All")
             select_all_btn.clicked.connect(lambda: table.selectAll())
             button_box.addButton(select_all_btn, QDialogButtonBox.ButtonRole.ActionRole)
+
+            # Load Selected button
+            load_btn = QPushButton("Load Selected")
+            load_btn.setToolTip("Load the selected session")
+            
+            def load_selected():
+                current_row = table.currentRow()
+                if current_row >= 0:
+                    session_id = int(table.item(current_row, 0).text())
+                    dialog.accept()
+                    self.switch_to_session(session_id)
+                else:
+                    QMessageBox.warning(self, "No Selection", "Please select a session to load.")
+            
+            load_btn.clicked.connect(load_selected)
+            button_box.addButton(load_btn, QDialogButtonBox.ButtonRole.ActionRole)
 
             rename_btn = QPushButton("Rename Selected")
             rename_btn.clicked.connect(lambda: self.rename_session_from_table(table))
@@ -1756,6 +2082,7 @@ class RawChat(QWidget):
             import traceback
             traceback.print_exc()
             self.append_message("system", f"Error managing sessions: {str(e)[:100]}")
+
 
     def rename_session_from_table(self, table):
         """Rename selected session"""

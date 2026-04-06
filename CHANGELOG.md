@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.3.0] - 2026-04-06
+
+### Major New Features
+
+#### UI Improvements
+- **Swapped Online/Offline toggle button with Search Input Field** - Search bar moved to top-right menu bar, Online toggle returned to status bar
+- **Session Prompts List** - Added "Session Prompts" button next to search bar showing all user prompts in current session with jump-to functionality
+- **Load Session integrated into Manage Sessions** - Removed standalone Load Session from File menu; now accessible via "Load Selected" button
+
+#### Session Search
+- **Full database session search** - Added "Search Sessions" button in Manage Sessions dialog that performs full database scan across all session names and message content
+- **Exact word matching** - Uses word boundary regex for precise keyword search
+- **Search results dialog** - Displays matching sessions with details and message preview tooltips
+- **Auto-highlight on load** - Search term automatically highlighted when loading session from results
+
+---
+
 ## [1.2.0] - 2026-04-05
 
 ### Major New Features

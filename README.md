@@ -22,6 +22,7 @@
   - [RAG System (Code Intelligence)](#rag-system-code-intelligence)
   - [Code Indexing](#code-indexing)
   - [Interface](#interface)
+  - [Session Management](#session-management)
   - [Performance](#performance)
   - [Cloud API Support](#cloud-api-support)
 - [Installation](#installation)
@@ -53,7 +54,7 @@ Tangi is an AI assistant designed for developers who want **fast, hardware-aware
 
 It includes a built-in **Retrieval-Augmented Generation (RAG)** system that indexes your codebase, enabling accurate, context-grounded responses.
 
-**Latest:** v1.2.0 adds session string search, online mode persistence (sessions now store provider/model info), UI improvements, and bug fixes. Still supports NVIDIA NIM API (40 requests/min free tier).
+**Latest:** v1.3.0 adds Session Prompts list (jump to any user message with hover over preview), full database session search with exact word matching, Load Session integrated into Load/Manage Sessions, and UI layout improvements (search bar moved to top menu, online toggle returned to status bar). Still supports NVIDIA NIM API (40 requests/min free tier).
 
 ---
 
@@ -120,6 +121,15 @@ It includes a built-in **Retrieval-Augmented Generation (RAG)** system that inde
 - Theme support (dark/light)
 - KV cache for faster repeated queries
 - **Window transparency persistence**
+- **Session Prompts list** - Jump to any user message in current session
+- **Session Search** - Full database search across all session names and message content with exact word matching
+- **Load Session integrated into Manage Sessions** - Load any session directly from the management dialog
+
+### Session Management
+- **Session Prompts** - List all user prompts in current session with jump-to functionality
+- **Session Search** - Search across your entire chat history database by session name or message content
+- **Load Session** - Load any saved session from the Manage Sessions dialog
+- **Session persistence** - Automatically saves conversation history with local/online mode tracking
 
 ### Performance
 - OpenBLAS acceleration
@@ -127,7 +137,7 @@ It includes a built-in **Retrieval-Augmented Generation (RAG)** system that inde
 - Automatic token budgeting
 - Context window management
 
-### Cloud API Support (New!)
+### Cloud API Support
 - **NVIDIA NIM** (free tier: 40 requests/minute, no credit card)
 - OpenAI (GPT-4o, GPT-4o-mini)
 - Together AI
@@ -365,6 +375,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 | Version | Release Date | Highlights |
 |---------|--------------|------------|
+| v1.3.0 | 2026-04-06 | Session Prompts list, full database session search, Load Session in Manage Sessions, UI layout improvements |
 | v1.2.0 | 2025-04-05 | Session persistence, find in chat, transparency fix |
 | v1.1.0 | 2026-04-03 | NVIDIA NIM API, online mode |
 | v1.0.0 | 2026-03-20 | Initial release |
@@ -373,7 +384,22 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ## Recent Updates
 
-### v1.2.0 (Current Stable)
+### v1.3.0 (Current Stable)
+
+#### Added
+- **Session Prompts list** - Button next to search bar showing all user prompts in current session with jump-to functionality (double-click or button)
+- **Full database session search** - Search across all session names and message content with exact word matching
+- **Search results dialog** - Displays matching sessions with details, model info, message count, and message preview tooltips
+- **Auto-highlight on load** - Search term automatically highlighted in chat when loading a session from search results
+
+#### Changed
+- **Swapped Online/Offline toggle with Search Input** - Search bar moved to top-right menu bar, Online toggle returned to status bar
+- **Load Session integrated into Load/Manage Sessions** - Removed standalone Load Session from File menu; now accessible via "Load Selected" button in Manage Sessions dialog
+- **Session management dialog** - Added Search Sessions button and Load Selected button for unified session management
+
+---
+
+### v1.2.0
 
 #### Added
 - **Session string search** - Find in chat bar in status bar (Ctrl+F, Enter to search, X to clear)
